@@ -1,19 +1,11 @@
 import { useState } from "react"
 import { scenarioRegions } from "../data/scenarioRegions"
 import type { ScenarioRegion } from "../types/scout"
+import { getNextScenario } from "../utils/scenarioEngine"
 import ControlPanel from "./ControlPanel"
 import LeftRail from "./LeftRail"
 import MapViewer from "./MapViewer"
 
-function getNextScenario(currentScenario: ScenarioRegion) {
-  const currentIndex = scenarioRegions.findIndex(
-    (scenario) => scenario.id === currentScenario.id,
-  )
-
-  const nextIndex = (currentIndex + 1) % scenarioRegions.length
-
-  return scenarioRegions[nextIndex]
-}
 
 function AppShell() {
   const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
@@ -21,7 +13,9 @@ function AppShell() {
   )
 
   function handleGenerateScenario() {
-    setActiveScenario((currentScenario) => getNextScenario(currentScenario))
+    setActiveScenario((currentScenario) =>
+  getNextScenario(scenarioRegions, currentScenario),
+)
   }
 
   return (
