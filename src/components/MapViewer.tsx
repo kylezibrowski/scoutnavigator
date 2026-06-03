@@ -6,6 +6,7 @@ import type { ScenarioRegion, ScoutPin } from '../types/scout'
 type MapViewerProps = {
   activeScenario: ScenarioRegion
   activeScenarioPins: ScoutPin[]
+  isAddingPin: boolean
 }
 
 function formatPinType(type: ScoutPin['type']) {
@@ -15,7 +16,11 @@ function formatPinType(type: ScoutPin['type']) {
     .join(' ')
 }
 
-function MapViewer({ activeScenario, activeScenarioPins }: MapViewerProps) {
+function MapViewer({
+  activeScenario,
+  activeScenarioPins,
+  isAddingPin,
+    }: MapViewerProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markerRefs = useRef<mapboxgl.Marker[]>([])
@@ -188,6 +193,11 @@ function MapViewer({ activeScenario, activeScenarioPins }: MapViewerProps) {
         <p className="mt-1 text-xs text-slate-500">
           {activeScenarioPins.length} simulated pins loaded.
         </p>
+        {isAddingPin && (
+            <p className="mt-2 rounded-lg bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700">
+            Add Pin mode active — click the map to choose a location.
+            </p>
+            )}
       </div>
     </section>
   )

@@ -17,13 +17,19 @@ function formatPinType(type: ScoutPin['type']) {
 type ControlPanelProps = {
   activeScenario: ScenarioRegion
   activeScenarioPins: ScoutPin[]
+  isAddingPin: boolean
   onGenerateScenario: () => void
+  onStartAddingPin: () => void
+  onCancelAddingPin: () => void
 }
 
 function ControlPanel({
   activeScenario,
   activeScenarioPins,
+  isAddingPin,
   onGenerateScenario,
+  onStartAddingPin,
+  onCancelAddingPin,
 }: ControlPanelProps) {
   return (
     <section className="w-[390px] overflow-y-auto border-r border-stone-200 bg-[#faf9f5] p-5">
@@ -71,6 +77,42 @@ function ControlPanel({
   >
     Generate New Scenario
   </button>
+</div>
+
+<div className="mb-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+  <div className="flex items-center justify-between">
+    <h2 className="text-sm font-bold text-slate-950">Add Pin</h2>
+    <span
+      className={`rounded-full px-2 py-1 text-xs font-semibold ${
+        isAddingPin
+          ? 'bg-orange-50 text-orange-700'
+          : 'bg-stone-100 text-slate-500'
+      }`}
+    >
+      {isAddingPin ? 'Active' : 'Ready'}
+    </span>
+  </div>
+
+  <p className="mt-2 text-sm leading-6 text-slate-600">
+    Add a user-created scouting pin to the active scenario. You will choose the
+    map location first, then enter the pin details.
+  </p>
+
+  {isAddingPin ? (
+    <button
+      onClick={onCancelAddingPin}
+      className="mt-4 w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-stone-50"
+    >
+      Cancel Add Pin
+    </button>
+  ) : (
+    <button
+      onClick={onStartAddingPin}
+      className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
+    >
+      Add Pin
+    </button>
+  )}
 </div>
 
       <div className="mb-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">

@@ -11,27 +11,43 @@ function AppShell() {
   const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
     scenarioRegions[0],
   )
+  const [isAddingPin, setIsAddingPin] = useState(false)
+
   const activeScenarioPins = createScenarioPins(activeScenario)
 
   function handleGenerateScenario() {
-    setActiveScenario((currentScenario) =>
-  getNextScenario(scenarioRegions, currentScenario),
-)
-  }
+  setIsAddingPin(false)
+
+  setActiveScenario((currentScenario) =>
+    getNextScenario(scenarioRegions, currentScenario),
+  )
+}
+
+function handleStartAddingPin() {
+  setIsAddingPin(true)
+}
+
+function handleCancelAddingPin() {
+  setIsAddingPin(false)
+}
 
   return (
     <main className="min-h-screen bg-[#f3f1eb] text-slate-900">
       <div className="flex h-screen overflow-hidden">
         <LeftRail />
         <ControlPanel
-          activeScenario={activeScenario}
-          activeScenarioPins={activeScenarioPins}
-          onGenerateScenario={handleGenerateScenario}
+            activeScenario={activeScenario}
+            activeScenarioPins={activeScenarioPins}
+            isAddingPin={isAddingPin}
+            onGenerateScenario={handleGenerateScenario}
+            onStartAddingPin={handleStartAddingPin}
+            onCancelAddingPin={handleCancelAddingPin}
         />
         <MapViewer
-  activeScenario={activeScenario}
-  activeScenarioPins={activeScenarioPins}
-/>
+            activeScenario={activeScenario}
+            activeScenarioPins={activeScenarioPins}
+            isAddingPin={isAddingPin}
+        />
       </div>
     </main>
   )
