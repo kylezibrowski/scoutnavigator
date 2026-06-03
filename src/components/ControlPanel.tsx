@@ -1,10 +1,32 @@
-import type { ScenarioRegion, ScoutPin } from '../types/scout'
+import { useState } from 'react'
+import type { ScenarioRegion, ScoutPin, UserPinDraft } from '../types/scout'
 import DemoDisclaimer from './DemoDisclaimer'
 
 const savedFolders = [
   '2026 Elk Hunt',
   'Scouting North Zone',
   'Ridge Access Plan',
+]
+
+const userPinTypeOptions: Array<{
+  value: ScoutPin['type']
+  label: string
+    }> = [
+  { value: 'generic-marker', label: 'Generic Marker' },
+  { value: 'camp', label: 'Camp' },
+  { value: 'sign', label: 'Sign' },
+  { value: 'water', label: 'Water' },
+  { value: 'glassing-point', label: 'Glassing Point' },
+  { value: 'trail-camera', label: 'Trail Camera' },
+  { value: 'wallow', label: 'Wallow' },
+  { value: 'access-point', label: 'Access Point' },
+  { value: 'truck', label: 'Truck' },
+  { value: 'food', label: 'Food' },
+  { value: 'bedding', label: 'Bedding' },
+  { value: 'blood', label: 'Blood' },
+  { value: 'shot', label: 'Shot' },
+  { value: 'deer', label: 'Deer' },
+  { value: 'elk', label: 'Elk' },
 ]
 
 function formatPinType(type: ScoutPin['type']) {
@@ -22,6 +44,7 @@ type ControlPanelProps = {
   onGenerateScenario: () => void
   onStartAddingPin: () => void
   onCancelAddingPin: () => void
+  onSaveUserPin: (pinDraft: UserPinDraft) => void
 }
 
 function ControlPanel({
@@ -32,8 +55,37 @@ function ControlPanel({
   onGenerateScenario,
   onStartAddingPin,
   onCancelAddingPin,
+  onSaveUserPin,
 }: ControlPanelProps) {
-  return (
+  const [userPinDraft, setUserPinDraft] = useState<UserPinDraft>({
+  name: '',
+  type: 'generic-marker',
+  notes: '',
+})
+
+const canSaveUserPin =
+  Boolean(pendingPinCoordinates) && userPinDraft.name.trim().length > 0
+
+function handleSubmitUserPin(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault()
+
+  if (!canSaveUserPin) {
+    return
+  }
+
+  onSaveUserPin({
+    name: userPinDraft.name.trim(),
+    type: userPinDraft.type,
+    notes: userPinDraft.notes.trim() || 'User-created scouting pin.',
+  })
+
+  setUserPinDraft({
+    name: '',
+    type: 'generic-marker',
+    notes: '',
+  })
+}
+    return (
     <section className="w-[390px] overflow-y-auto border-r border-stone-200 bg-[#faf9f5] p-5">
       <div className="mb-6">
         <p className="text-xs font-bold uppercase tracking-[0.22em] text-orange-600">
@@ -108,6 +160,74 @@ function ControlPanel({
       {pendingPinCoordinates[1].toFixed(5)}
     </p>
   </div>
+)}
+{isAddingPin && pendingPinCoordinates && (
+  <form onSubmit={handleSubmitUserPin} className="mt-4 space-y-3">
+    <div>
+      <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+        Pin Name
+      </label>
+      <input
+        value={userPinDraft.name}
+        onChange={(event) =>
+          setUserPinDraft((currentDraft) => ({
+            ...currentDraft,
+            name: event.target.value,
+          }))
+        }
+        placeholder="Example: Fresh rub line"
+        className="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-orange-400"
+      />
+    </div>
+
+    <div>
+      <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+        Pin Type
+      </label>
+      <select
+        value={userPinDraft.type}
+        onChange={(event) =>
+          setUserPinDraft((currentDraft) => ({
+            ...currentDraft,
+            type: event.target.value as ScoutPin['type'],
+          }))
+        }
+        className="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-orange-400"
+      >
+        {userPinTypeOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div>
+      <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+        Notes
+      </label>
+      <textarea
+        value={userPinDraft.notes}
+        onChange={(event) =>
+          setUserPinDraft((currentDraft) => ({
+            ...currentDraft,
+            notes: event.target.value,
+          }))
+        }
+        placeholder="Add context for this scouting observation..."
+        rows={3}
+        className="mt-1 w-full resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-orange-400"
+      />
+    </div>
+
+    <button
+      type="submit"
+      disabled={!canSaveUserPin}
+      className="w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-stone-300"
+    >
+      Save Pin
+    </button>
+  </form>
 )}
 
   {isAddingPin ? (

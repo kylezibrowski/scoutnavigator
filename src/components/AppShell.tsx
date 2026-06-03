@@ -1,67 +1,93 @@
-import { useState } from "react"
-import { scenarioRegions } from "../data/scenarioRegions"
-import type { ScenarioRegion, ScoutPin } from '../types/scout'
+import { useState } from 'react'
+import ControlPanel from './ControlPanel'
+import LeftRail from './LeftRail'
+import MapViewer from './MapViewer'
+import { scenarioRegions } from '../data/scenarioRegions'
 import { createScenarioPins, getNextScenario } from '../utils/scenarioEngine'
-import ControlPanel from "./ControlPanel"
-import LeftRail from "./LeftRail"
-import MapViewer from "./MapViewer"
-
+import type { ScenarioRegion, ScoutPin, UserPinDraft } from '../types/scout'
 
 function AppShell() {
-    const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
+  const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
     scenarioRegions[0],
-    )
-    const [isAddingPin, setIsAddingPin] = useState(false)
-    const [pendingPinCoordinates, setPendingPinCoordinates] = useState<
+  )
+  const [isAddingPin, setIsAddingPin] = useState(false)
+  const [pendingPinCoordinates, setPendingPinCoordinates] = useState<
     ScoutPin['coordinates'] | null
-    >(null)
+  >(null)
+  const [userPins, setUserPins] = useState<ScoutPin[]>([])
 
-    const activeScenarioPins = createScenarioPins(activeScenario)
+  const simulatedScenarioPins = createScenarioPins(activeScenario)
+  const activeScenarioPins = [
+    ...simulatedScenarioPins,
+    ...userPins.filter((pin) => pin.scenarioId === activeScenario.id),
+  ]
 
   function handleGenerateScenario() {
-        setIsAddingPin(false)
-        setPendingPinCoordinates(null)
+    setIsAddingPin(false)
+    setPendingPinCoordinates(null)
 
-        setActiveScenario((currentScenario) =>
-            getNextScenario(scenarioRegions, currentScenario),
-        )
-        }
+    setActiveScenario((currentScenario) =>
+      getNextScenario(scenarioRegions, currentScenario),
+    )
+  }
 
-function handleStartAddingPin() {
-  setPendingPinCoordinates(null)
-  setIsAddingPin(true)
-}
+  function handleStartAddingPin() {
+    setPendingPinCoordinates(null)
+    setIsAddingPin(true)
+  }
 
-function handleCancelAddingPin() {
-  setIsAddingPin(false)
-  setPendingPinCoordinates(null)
-}
+  function handleCancelAddingPin() {
+    setIsAddingPin(false)
+    setPendingPinCoordinates(null)
+  }
 
-function handleChoosePinLocation(coordinates: ScoutPin['coordinates']) {
-  setPendingPinCoordinates(coordinates)
-}
+  function handleChoosePinLocation(coordinates: ScoutPin['coordinates']) {
+    setPendingPinCoordinates(coordinates)
+  }
+
+  function handleSaveUserPin(pinDraft: UserPinDraft) {
+    if (!pendingPinCoordinates) {
+      return
+    }
+
+    const newPin: ScoutPin = {
+      id: `${activeScenario.id}-user-pin-${Date.now()}`,
+      scenarioId: activeScenario.id,
+      name: pinDraft.name,
+      type: pinDraft.type,
+      coordinates: pendingPinCoordinates,
+      notes: pinDraft.notes,
+      observedAt: new Date().toISOString().slice(0, 10),
+      source: 'user',
+    }
+
+    setUserPins((currentPins) => [...currentPins, newPin])
+    setPendingPinCoordinates(null)
+    setIsAddingPin(false)
+  }
 
   return (
-    <main className="min-h-screen bg-[#f3f1eb] text-slate-900">
-      <div className="flex h-screen overflow-hidden">
-        <LeftRail />
-        <ControlPanel
-            activeScenario={activeScenario}
-            activeScenarioPins={activeScenarioPins}
-            isAddingPin={isAddingPin}
-            pendingPinCoordinates={pendingPinCoordinates}
-            onGenerateScenario={handleGenerateScenario}
-            onStartAddingPin={handleStartAddingPin}
-            onCancelAddingPin={handleCancelAddingPin}
-            />
-        <MapViewer
-            activeScenario={activeScenario}
-            activeScenarioPins={activeScenarioPins}
-            isAddingPin={isAddingPin}
-            pendingPinCoordinates={pendingPinCoordinates}
-            onChoosePinLocation={handleChoosePinLocation}
-            />
-      </div>
+    <main className="flex min-h-screen bg-stone-100 p-3 text-slate-900">
+      <LeftRail />
+
+      <ControlPanel
+        activeScenario={activeScenario}
+        activeScenarioPins={activeScenarioPins}
+        isAddingPin={isAddingPin}
+        pendingPinCoordinates={pendingPinCoordinates}
+        onGenerateScenario={handleGenerateScenario}
+        onStartAddingPin={handleStartAddingPin}
+        onCancelAddingPin={handleCancelAddingPin}
+        onSaveUserPin={handleSaveUserPin}
+      />
+
+      <MapViewer
+        activeScenario={activeScenario}
+        activeScenarioPins={activeScenarioPins}
+        isAddingPin={isAddingPin}
+        pendingPinCoordinates={pendingPinCoordinates}
+        onChoosePinLocation={handleChoosePinLocation}
+      />
     </main>
   )
 }

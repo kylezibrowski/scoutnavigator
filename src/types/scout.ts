@@ -44,3 +44,9 @@ export type ScoutPin = {
   observedAt: string
   source: ScoutPinSource
 }
+
+export type UserPinDraft = {
+  name: string
+  type: ScoutPinType
+  notes: string
+}

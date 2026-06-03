@@ -225,9 +225,9 @@ useEffect(() => {
   pendingMarkerRef.current = marker
 }, [pendingPinCoordinates])
 
-  return (
-    <section className="relative h-full min-h-[640px] flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 shadow-sm">
-      <div ref={mapContainerRef} className="h-full w-full" />
+return (
+  <section className="relative h-[calc(100vh-1.5rem)] min-h-[640px] flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 shadow-sm">
+    <div ref={mapContainerRef} className="absolute inset-0 h-full w-full" />
 
       {mapError && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-100 p-6">
