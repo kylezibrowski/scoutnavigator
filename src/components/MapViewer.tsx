@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
+import type { ScenarioRegion } from "../types/scout"
 
-function MapViewer() {
+type MapViewerProps = {
+  activeScenario: ScenarioRegion
+}
+
+function MapViewer({ activeScenario }: MapViewerProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
@@ -25,10 +30,10 @@ function MapViewer() {
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: "mapbox://styles/mapbox/outdoors-v12",
-      center: [-115.1886, 44.2141],
-      zoom: 10.2,
-      pitch: 55,
-      bearing: -18,
+      center: activeScenario.camera.center,
+      zoom: activeScenario.camera.zoom,
+      pitch: activeScenario.camera.pitch,
+      bearing: activeScenario.camera.bearing,
       attributionControl: false,
     })
 
@@ -62,6 +67,21 @@ function MapViewer() {
       mapRef.current = null
     }
   }, [])
+
+    useEffect(() => {
+    if (!mapRef.current) {
+      return
+    }
+
+    mapRef.current.flyTo({
+      center: activeScenario.camera.center,
+      zoom: activeScenario.camera.zoom,
+      pitch: activeScenario.camera.pitch,
+      bearing: activeScenario.camera.bearing,
+      duration: 1200,
+      essential: true,
+    })
+  }, [activeScenario])
 
   return (
     <section className="relative h-full min-h-[640px] flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 shadow-sm">

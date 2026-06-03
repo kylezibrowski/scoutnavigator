@@ -1,3 +1,4 @@
+import type { ScenarioRegion } from "../types/scout"
 import DemoDisclaimer from './DemoDisclaimer'
 
 const savedFolders = [
@@ -13,7 +14,15 @@ const recentPins = [
   'Bedding - Timber Pocket',
 ]
 
-function ControlPanel() {
+type ControlPanelProps = {
+  activeScenario: ScenarioRegion
+  onGenerateScenario: () => void
+}
+
+function ControlPanel({
+  activeScenario,
+  onGenerateScenario,
+}: ControlPanelProps) {
   return (
     <section className="w-[390px] overflow-y-auto border-r border-stone-200 bg-[#faf9f5] p-5">
       <div className="mb-6">
@@ -32,15 +41,30 @@ function ControlPanel() {
       <DemoDisclaimer />
 
       <div className="mb-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-bold text-slate-950">Scenario</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Boise National Forest scouting loop
-        </p>
+  <h2 className="text-sm font-bold text-slate-950">Scenario</h2>
+  <p className="mt-1 text-sm font-bold text-slate-800">
+    {activeScenario.name}
+  </p>
+  <p className="mt-1 text-sm text-slate-600">
+    {activeScenario.subtitle}
+  </p>
+  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
+    {activeScenario.primaryUseCase}
+  </p>
+  <p className="mt-2 text-sm leading-6 text-slate-600">
+    {activeScenario.description}
+  </p>
+  <p className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs leading-5 text-slate-600">
+    {activeScenario.terrainNotes}
+  </p>
 
-        <button className="mt-4 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-orange-600">
-          Generate New Scenario
-        </button>
-      </div>
+  <button
+    onClick={onGenerateScenario}
+    className="mt-4 w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-orange-600"
+  >
+    Generate New Scenario
+  </button>
+</div>
 
       <div className="mb-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between">
