@@ -7,12 +7,12 @@ const savedFolders = [
   'Ridge Access Plan',
 ]
 
-const recentPins = [
-  'Water - Creek Crossing',
-  'Sign - Fresh Tracks',
-  'Glassing Point - East Knob',
-  'Bedding - Timber Pocket',
-]
+function formatPinType(type: ScoutPin['type']) {
+  return type
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
 
 type ControlPanelProps = {
   activeScenario: ScenarioRegion
@@ -117,18 +117,34 @@ function ControlPanel({
         </div>
 
         <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-bold text-slate-950">Recent Pins</h2>
-          <div className="mt-3 space-y-2">
-            {recentPins.map((pin) => (
-              <div
-                key={pin}
-                className="rounded-xl border border-stone-100 bg-stone-50 px-3 py-2 text-sm font-medium text-slate-700"
-              >
-                {pin}
-              </div>
-            ))}
+  <div className="flex items-center justify-between">
+    <h2 className="text-sm font-bold text-slate-950">Recent Pins</h2>
+    <span className="rounded-full bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700">
+      {activeScenarioPins.length}
+    </span>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {activeScenarioPins.map((pin) => (
+      <div
+        key={pin.id}
+        className="rounded-xl border border-stone-100 bg-stone-50 px-3 py-2"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">{pin.name}</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              {formatPinType(pin.type)} · {pin.observedAt}
+            </p>
           </div>
+          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            {pin.source}
+          </span>
         </div>
+      </div>
+    ))}
+  </div>
+</div>
       </div>
     </section>
   )
