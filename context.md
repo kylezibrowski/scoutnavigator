@@ -1,4 +1,4 @@
-# ScoutNavigator Context — Phase 1 Complete
+# ScoutNavigator Context — Phase 2 Complete
 
 ## Project Name
 
@@ -37,7 +37,9 @@ ScoutNavigator simulates outdoor scouting workflows over real Idaho terrain.
 
 Users can generate realistic scouting scenarios, review scattered scouting pins, run a “Pin Cleanup” recommendation workflow, and explore “Find Feature Terrains” candidates.
 
-The app uses real Mapbox terrain as the visual map foundation. For v1, scouting pins and terrain feature candidates are simulated by a scenario engine for demo reliability. The system must be honest about this through a subtle Demo Mode disclaimer.
+The app uses real Mapbox terrain as the visual map foundation. For v1, scouting pins and terrain feature candidates are simulated by a scenario engine for demo reliability.
+
+The system must remain honest about this through a subtle Demo Mode disclaimer.
 
 ---
 
@@ -46,6 +48,8 @@ The app uses real Mapbox terrain as the visual map foundation. For v1, scouting 
 Current disclaimer language:
 
 > Scenarios use simulated scouting data layered over real Idaho terrain.
+
+This disclaimer is already present in the app shell and should remain visible.
 
 The app should not claim that it detects authoritative real-world saddles, benches, ridgelines, water sources, animal activity, public-land legality, or hunt recommendations from GIS/elevation datasets in v1.
 
@@ -61,7 +65,7 @@ The architecture should be designed so simulated features could later be replace
 2. App loads a simulated Mountain West / Idaho scouting scenario.
 3. Real Idaho terrain appears through Mapbox.
 4. Scouting pins and scenario data are displayed.
-5. The UI uses a light, OnX-inspired layout with a left rail and side content panel.
+5. The UI uses a light, OnX-inspired layout with a left rail and side content/control panel.
 6. The app clearly communicates that the scenario data is simulated.
 
 ### Generate New Scenario
@@ -131,7 +135,7 @@ For v1, it should use simulated-but-plausible feature candidates over real terra
 
 ## Post-Moonshot Future Feature Concept
 
-### Ask Remi
+### Ask Remi / Remi-Inspired Scouting Logic
 
 The user wants to add a future LLM-driven feature concept after Feature Finder.
 
@@ -145,8 +149,6 @@ Example logic:
 * Water near cover and lower drainage terrain may support a wallow/bedding interpretation.
 * Glassing points may be prioritized based on visibility into adjacent benches, saddles, and feeding zones.
 
-The user specifically mentioned Remi Warren because Remi has written and spoken extensively about using mapping software for scouting and backcountry hunting strategy.
-
 Important future clarifications before building this:
 
 1. Decide whether to use the name **Ask Remi** directly or use safer framing such as **Remi-inspired scouting logic**.
@@ -157,7 +159,7 @@ Important future clarifications before building this:
 6. Define the feature inputs: selected terrain candidates, slope/aspect, distance between features, pin types, season, target species, prior user pins, and scenario context.
 7. Keep all outputs honest and avoid authoritative wildlife prediction claims.
 
-This is not part of v1. Capture it in future roadmap context.
+This is not part of v1. Capture it only as future roadmap context.
 
 ---
 
@@ -224,7 +226,7 @@ Future options:
 * Let the map own more screen space.
 * Convert some controls into floating overlays once Mapbox is integrated.
 
-This is backlogged and should not block Phase 2.
+This is backlogged and should not block Phase 3.
 
 ---
 
@@ -313,9 +315,9 @@ Because v1 does not perform true elevation analysis, the app must be transparent
 
 ---
 
-## Core Technical Architecture
+## Current Technical Architecture
 
-Current structure after Phase 1:
+Current structure after Phase 2:
 
 ```text
 src/
@@ -422,23 +424,99 @@ This can later be replaced with backend persistence, account sync, export/import
 
 Use Mapbox GL JS.
 
-The Mapbox token should be stored in an environment variable:
+The Mapbox token is stored in a local environment variable:
 
 ```text
 VITE_MAPBOX_TOKEN=your_mapbox_token_here
 ```
 
-Do not hard-code the real token in source code.
+The real token lives in:
 
-Include an `.env.example` file:
+```text
+.env
+```
+
+The `.env` file is ignored by Git and should never be committed to GitHub.
+
+The committed example file is:
+
+```text
+.env.example
+```
+
+It contains placeholder text only:
 
 ```text
 VITE_MAPBOX_TOKEN=replace_with_your_mapbox_token
 ```
 
-Make sure `.env` is included in `.gitignore`.
+The app reads the token in `MapViewer.tsx` using:
 
-`.env` should never be committed to GitHub.
+```ts
+import.meta.env.VITE_MAPBOX_TOKEN
+```
+
+---
+
+## Current Mapbox Implementation
+
+`MapViewer.tsx` now renders a real Mapbox map using:
+
+* `mapbox-gl`
+* Mapbox outdoors style
+* Mapbox DEM terrain source
+* Terrain exaggeration
+* Fog
+* Navigation control
+* Compact attribution control
+* Idaho-centered camera
+
+Current camera:
+
+```ts
+center: [-115.1886, 44.2141],
+zoom: 10.2,
+pitch: 55,
+bearing: -18,
+```
+
+The user confirmed `zoom: 10.2` is a good default scenario starting point.
+
+Notes:
+
+* `zoom: 8.2` felt too broad, roughly a large regional view.
+* `zoom: 10.2` feels more appropriate for a hunting/scouting scenario.
+* Feature Finder may eventually use a tighter view, likely around zoom 11–12+ depending on feature type and screen size.
+
+`MapViewer.tsx` also has a visible missing-token fallback UI that tells the user to add `VITE_MAPBOX_TOKEN` to `.env`.
+
+---
+
+## Mapbox Build Warning
+
+Running:
+
+```bash
+npm run build
+```
+
+succeeds.
+
+A warning appears that some chunks are larger than 500 KB after minification.
+
+This is not a blocker.
+
+Reason:
+
+`mapbox-gl` is a large mapping library.
+
+Future possible optimization:
+
+* lazy-load the map
+* dynamic import
+* chunking/code-splitting
+
+Do not address this yet. It is a future polish/performance item, not a Phase 3 blocker.
 
 ---
 
@@ -455,11 +533,20 @@ Preferred workflow:
 1. Generate code for a small slice.
 2. Run locally.
 3. Fix errors.
-4. Commit working state.
-5. Push to GitHub.
-6. Move to the next slice.
+4. Run build when appropriate.
+5. Confirm `git status`.
+6. Commit working state.
+7. Push to GitHub.
+8. Move to the next slice.
 
-Use Git from the beginning.
+Use Git continuously.
+
+Before any commit:
+
+* Confirm the app works locally.
+* Confirm `npm run build` passes when relevant.
+* Confirm `.env` is not listed in Git status.
+* Confirm only intended files are staged.
 
 ---
 
@@ -477,21 +564,36 @@ Phase 0 was completed from scratch.
 
 * Git installed:
 
-  * `git version 2.50.1 (Apple Git-155)`
+```text
+git version 2.50.1 (Apple Git-155)
+```
+
 * Git identity configured:
 
-  * `user.name=Kyle Zibrowski`
-  * `user.email=[correct GitHub email]`
+```text
+user.name=Kyle Zibrowski
+user.email=[correct GitHub email]
+```
+
 * Node.js installed:
 
-  * `v24.16.0`
+```text
+v24.16.0
+```
+
 * npm installed:
 
-  * `11.13.0`
+```text
+11.13.0
+```
+
 * VS Code installed:
 
-  * `1.122.1`
-  * `arm64`
+```text
+1.122.1
+arm64
+```
+
 * VS Code `code` terminal command installed and verified.
 
 ### Local Project Folder Created
@@ -526,12 +628,18 @@ README.md
 context.md
 ```
 
-`.gitignore` currently includes environment exclusions for `.env`, `.env.local`, and `.env.*.local`.
+`.gitignore` now includes environment exclusions for:
+
+```text
+.env
+.env.local
+.env.*.local
+```
 
 Important reason:
 
 * `.env` is ignored so the real Mapbox token will not be committed to GitHub.
-* A future `.env.example` file should be committed with placeholder text only.
+* `.env.example` is committed with placeholder text only.
 
 ### First Commit Created
 
@@ -585,15 +693,6 @@ git remote add origin https://github.com/kylezibrowski/scoutnavigator.git
 ```
 
 Initial push completed.
-
-Verification output:
-
-```text
-On branch main
-Your branch is up to date with 'origin/main'.
-
-nothing to commit, working tree clean
-```
 
 Remote verification:
 
@@ -684,7 +783,7 @@ src/index.css
 src/App.css
 ```
 
-`vite.config.ts` now uses:
+`vite.config.ts` uses:
 
 ```ts
 import tailwindcss from '@tailwindcss/vite'
@@ -716,9 +815,8 @@ Current UI includes:
 * Find Feature Terrains placeholder card.
 * Saved Folders placeholder list.
 * Recent Pins placeholder list.
-* Right-side map/terrain placeholder.
-* Example colored pin markers.
-* Phase 1 map placeholder label.
+* Right-side map area.
+* Phase 1 placeholder was replaced by Mapbox in Phase 2.
 
 Commit created:
 
@@ -791,8 +889,6 @@ Commit created:
 Update README for Phase 1 ScoutNavigator shell
 ```
 
-### Current Git Status
-
 Final verified status after Phase 1:
 
 ```text
@@ -801,6 +897,280 @@ Your branch is up to date with 'origin/main'.
 
 nothing to commit, working tree clean
 ```
+
+---
+
+## Completed Phase 2 — Mapbox Integration
+
+Phase 2 is complete.
+
+### Phase 2 Goals
+
+Create:
+
+* Mapbox token setup.
+* `.env` and `.env.example`.
+* `MapViewer.tsx` real Mapbox integration.
+* Initial Idaho map view.
+* Terrain/pitched map feel.
+
+Success criteria:
+
+* Map loads locally.
+* No token errors.
+* Camera starts in Idaho.
+* Existing shell remains intact.
+* Real Mapbox map replaces placeholder area.
+* `.env` remains uncommitted.
+* `.env.example` is committed with placeholder token text.
+
+All criteria were met.
+
+### Environment Files
+
+Created local private `.env`:
+
+```text
+VITE_MAPBOX_TOKEN=[real Mapbox public token]
+```
+
+Created committed `.env.example`:
+
+```text
+VITE_MAPBOX_TOKEN=replace_with_your_mapbox_token
+```
+
+Updated `.gitignore` to include:
+
+```text
+# Environment variables
+.env
+.env.local
+.env.*.local
+```
+
+Verified:
+
+```bash
+git check-ignore -v .env
+```
+
+Output confirmed `.env` is ignored by `.gitignore`.
+
+### Mapbox GL JS Installed
+
+Installed:
+
+```bash
+npm install mapbox-gl
+```
+
+Files changed:
+
+```text
+package.json
+package-lock.json
+```
+
+### Real Mapbox Map Added
+
+`src/components/MapViewer.tsx` was updated to use:
+
+```ts
+import mapboxgl from "mapbox-gl"
+import "mapbox-gl/dist/mapbox-gl.css"
+```
+
+The placeholder map was replaced with a real Mapbox map.
+
+Map style:
+
+```text
+mapbox://styles/mapbox/outdoors-v12
+```
+
+Initial broad Phase 2 camera:
+
+```ts
+center: [-115.1886, 44.2141],
+zoom: 8.2,
+pitch: 55,
+bearing: -18,
+```
+
+Terrain source:
+
+```text
+mapbox://mapbox.mapbox-terrain-dem-v1
+```
+
+Terrain exaggeration:
+
+```ts
+exaggeration: 1.4
+```
+
+Map controls:
+
+* Navigation control at top-right.
+* Compact attribution control at bottom-right.
+
+Build check:
+
+```bash
+npm run build
+```
+
+Succeeded.
+
+Commit created:
+
+```text
+Integrate Mapbox terrain map
+```
+
+Push completed.
+
+Final status was clean.
+
+---
+
+## Completed Phase 2.1 — Mapbox Viewer Polish and Stability
+
+Phase 2.1 is complete.
+
+### Purpose
+
+Phase 2.1 was an optimization and stability slice before moving into scenario logic.
+
+It was not a new feature phase.
+
+### Completed Changes
+
+1. Confirmed `AppShell.tsx` imports `MapViewer` as a default import:
+
+```ts
+import MapViewer from './MapViewer'
+```
+
+2. Cleaned up `MapViewer.tsx` export style to use only:
+
+```ts
+export default MapViewer
+```
+
+3. Added a visible missing-token fallback UI.
+
+If `VITE_MAPBOX_TOKEN` is missing, the map area now shows a readable setup message rather than leaving the app blank.
+
+4. Preserved console error for developer troubleshooting:
+
+```ts
+console.error("Missing VITE_MAPBOX_TOKEN environment variable.")
+```
+
+5. Tightened the default map view from:
+
+```ts
+zoom: 8.2
+```
+
+to:
+
+```ts
+zoom: 10.2
+```
+
+The user confirmed `zoom: 10.2` is a good default starting point for a hunting/scouting scenario and is easy to modify later.
+
+6. Ran local app.
+
+Confirmed:
+
+* ScoutNavigator shell loads.
+* Mapbox map loads.
+* Idaho terrain view is tighter and visually appropriate.
+* Demo Mode disclaimer remains correct.
+* No token/rendering errors.
+
+7. Ran production build:
+
+```bash
+npm run build
+```
+
+Build succeeded.
+
+The Mapbox bundle-size warning appeared again and remains non-blocking.
+
+Commit created:
+
+```text
+Polish Mapbox viewer setup
+```
+
+Push completed.
+
+Final status:
+
+```text
+On branch main
+Your branch is up to date with 'origin/main'.
+
+nothing to commit, working tree clean
+```
+
+---
+
+## Recommended Next Phase
+
+### Phase 3 — Scenario Engine
+
+Status: **Next**
+
+Start Phase 3 in a new chat using this updated context file.
+
+Recommended Phase 3 approach:
+
+1. Create TypeScript data models first.
+2. Create curated Idaho scenario regions.
+3. Keep region data simple and readable.
+4. Wire the existing **Generate New Scenario** button to select a different region.
+5. Move the Mapbox camera to the selected region.
+6. Update the scenario name/description in the control panel.
+7. Do not add pins until the scenario region switching works.
+8. Run locally.
+9. Build.
+10. Commit and push.
+
+### Phase 3 First Slice Recommendation
+
+Start with these files:
+
+```text
+src/types/scout.ts
+src/data/scenarioRegions.ts
+```
+
+Then minimally update:
+
+```text
+src/App.tsx or src/components/AppShell.tsx
+src/components/ControlPanel.tsx
+src/components/MapViewer.tsx
+```
+
+But do not overbuild.
+
+The clean first deliverable should be:
+
+* App loads an initial scenario region.
+* **Generate New Scenario** changes the active scenario.
+* Map camera flies to the new scenario region.
+* Scenario card text updates.
+* No pins yet.
+* No feature candidates yet.
+* No Pin Cleanup logic yet.
 
 ---
 
@@ -844,54 +1214,72 @@ Success criteria met:
 
 ### Phase 2 — Mapbox Integration
 
+Status: **Complete**
+
+Created:
+
+* Mapbox token setup.
+* `.env` and `.env.example`.
+* Confirmed `.env` is ignored.
+* Installed Mapbox GL JS.
+* Replaced placeholder map with real Mapbox map.
+* Started the camera in Idaho.
+* Preserved the existing ScoutNavigator shell.
+* Ran locally.
+* Fixed blank page import/export issue.
+* Built successfully.
+* Committed and pushed.
+
+### Phase 2.1 — Mapbox Viewer Polish
+
+Status: **Complete**
+
+Created:
+
+* Clean default export in `MapViewer.tsx`.
+* Missing-token fallback UI.
+* Tighter scouting-oriented default zoom.
+* Production build verification.
+* Commit and push.
+
+### Phase 3 — Scenario Engine
+
 Status: **Next**
 
 Create:
 
-* Mapbox token setup.
-* `.env` and `.env.example`.
-* `MapViewer.tsx` real Mapbox integration.
-* Initial Idaho map view.
-* Terrain/pitched map feel.
-
-Success criteria:
-
-* Map loads locally.
-* No token errors.
-* Camera starts in Idaho.
-* Existing shell remains intact.
-* Real Mapbox map replaces placeholder area.
-* `.env` remains uncommitted.
-* `.env.example` is committed with placeholder token text.
-
-### Phase 3 — Scenario Engine
-
-Create:
-
+* Core types.
 * Curated Idaho scenario regions.
-* Scenario generator.
-* Pin generator.
-* Simulated feature generator.
+* Active scenario state.
+* Generate New Scenario behavior.
+* Map camera movement to new region.
+* Scenario card updates.
 
 Success criteria:
 
-* App loads a scenario.
-* Generate New Scenario moves to a different Idaho region.
-* New pins and features generate.
+* App loads a default scenario.
+* Generate New Scenario changes the active Idaho region.
+* Map moves to the new Idaho region.
+* Scenario panel updates.
+* No simulated pins yet.
+* Build passes.
+* Git status is clean and pushed.
 
-### Phase 4 — Map Pins and UI Panels
+### Phase 4 — Scenario Pins and UI Panels
 
 Create:
 
-* Pin icons and colors.
-* Folder list.
-* Pin list.
-* Demo Mode disclaimer integration with scenario data.
+* Pin types and colors.
+* Simulated pin generator.
+* Pin markers on the map.
+* Recent pins list tied to active scenario.
+* Saved folders list tied to simulated state.
 
 Success criteria:
 
 * Pins render on the map.
 * Pins show in the side panel.
+* Scenario changes regenerate pins.
 * UI resembles a light outdoor-nav product.
 
 ### Phase 5 — Pin Cleanup
@@ -960,6 +1348,8 @@ Success criteria:
 * Core utility logic has tests.
 * Tests run successfully.
 
+Testing is intentionally backlogged until after the app works.
+
 ### Phase 9 — Deployment
 
 Deploy to Vercel.
@@ -1006,6 +1396,9 @@ Potential future improvements:
 * Testing: backlog until after working demo.
 * Code style: portfolio-readable.
 * Build approach: small slices with clean commits.
+* Default scenario map zoom: 10.2 for now.
+* Feature Finder can use tighter zoom later.
+* Middle control panel resizing/collapsing is backlogged.
 
 ---
 
@@ -1024,24 +1417,13 @@ Potential future improvements:
 11. Use small build increments.
 12. Keep the README honest about simulated data.
 13. Avoid implying Remi Warren endorsement, voice, or licensed involvement unless explicitly authorized in the future.
+14. Keep `.env` private and uncommitted.
+15. Commit `.env.example` only with placeholder token text.
 
 ---
 
 ## How to Resume in a New Chat
 
-Start a new chat and paste/upload this context file, then say:
+Start a new chat and upload this `context.md` file.
 
-> Continue the ScoutNavigator build from this context. We completed Phase 1 and are starting Phase 2 Mapbox Integration. Walk me through the next steps slowly, assuming I am comfortable with the terminal but need commands explained clearly.
-
-Phase 2 should begin by setting up the Mapbox token safely:
-
-1. Create `.env` with the real token.
-2. Create `.env.example` with placeholder text.
-3. Confirm `.env` is ignored by Git.
-4. Install Mapbox GL JS.
-5. Replace the map placeholder in `MapViewer.tsx` with a real Mapbox map.
-6. Start the camera in Idaho.
-7. Preserve the existing ScoutNavigator shell.
-8. Run locally.
-9. Fix any errors.
-10. Commit and push a working Mapbox integration.
+Then use the prompt below.
