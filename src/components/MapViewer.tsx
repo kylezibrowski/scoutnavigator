@@ -1,17 +1,19 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 
 function MapViewer() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
     const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
 
     if (!mapboxToken) {
-      console.error("Missing VITE_MAPBOX_TOKEN environment variable.")
-      return
+        setMapError("Missing Mapbox token. Add VITE_MAPBOX_TOKEN to your local .env file.")
+        console.error("Missing VITE_MAPBOX_TOKEN environment variable.")
+        return
     }
 
     if (!mapContainerRef.current || mapRef.current) {
@@ -24,7 +26,7 @@ function MapViewer() {
       container: mapContainerRef.current,
       style: "mapbox://styles/mapbox/outdoors-v12",
       center: [-115.1886, 44.2141],
-      zoom: 8.2,
+      zoom: 10.2,
       pitch: 55,
       bearing: -18,
       attributionControl: false,
@@ -64,6 +66,22 @@ function MapViewer() {
   return (
     <section className="relative h-full min-h-[640px] flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 shadow-sm">
       <div ref={mapContainerRef} className="h-full w-full" />
+      {mapError && (
+  <div className="absolute inset-0 flex items-center justify-center bg-slate-100 p-6">
+    <div className="max-w-md rounded-2xl border border-orange-200 bg-white p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+        Map Setup Needed
+      </p>
+      <p className="mt-2 text-lg font-bold text-slate-900">
+        Mapbox token missing
+      </p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        Add your Mapbox public token to a local .env file using VITE_MAPBOX_TOKEN.
+        The real token should stay local and should not be committed to GitHub.
+      </p>
+    </div>
+  </div>
+)}
 
       <div className="absolute left-5 top-5 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
@@ -80,5 +98,4 @@ function MapViewer() {
   )
 }
 
-export { MapViewer }
 export default MapViewer
