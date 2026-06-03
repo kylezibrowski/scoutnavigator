@@ -1,4 +1,4 @@
-import type { ScenarioRegion } from "../types/scout"
+import type { ScenarioRegion, ScoutPin } from '../types/scout'
 import DemoDisclaimer from './DemoDisclaimer'
 
 const savedFolders = [
@@ -16,11 +16,13 @@ const recentPins = [
 
 type ControlPanelProps = {
   activeScenario: ScenarioRegion
+  activeScenarioPins: ScoutPin[]
   onGenerateScenario: () => void
 }
 
 function ControlPanel({
   activeScenario,
+  activeScenarioPins,
   onGenerateScenario,
 }: ControlPanelProps) {
   return (
@@ -54,6 +56,11 @@ function ControlPanel({
   <p className="mt-2 text-sm leading-6 text-slate-600">
     {activeScenario.description}
   </p>
+
+  <p className="mt-3 text-xs font-semibold text-slate-500">
+    {activeScenarioPins.length} simulated pins ready for this scenario.
+  </p>
+
   <p className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-xs leading-5 text-slate-600">
     {activeScenario.terrainNotes}
   </p>

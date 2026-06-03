@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { scenarioRegions } from "../data/scenarioRegions"
 import type { ScenarioRegion } from "../types/scout"
-import { getNextScenario } from "../utils/scenarioEngine"
+import { createScenarioPins, getNextScenario } from '../utils/scenarioEngine'
 import ControlPanel from "./ControlPanel"
 import LeftRail from "./LeftRail"
 import MapViewer from "./MapViewer"
@@ -11,6 +11,7 @@ function AppShell() {
   const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
     scenarioRegions[0],
   )
+  const activeScenarioPins = createScenarioPins(activeScenario)
 
   function handleGenerateScenario() {
     setActiveScenario((currentScenario) =>
@@ -24,9 +25,13 @@ function AppShell() {
         <LeftRail />
         <ControlPanel
           activeScenario={activeScenario}
+          activeScenarioPins={activeScenarioPins}
           onGenerateScenario={handleGenerateScenario}
         />
-        <MapViewer activeScenario={activeScenario} />
+        <MapViewer
+  activeScenario={activeScenario}
+  activeScenarioPins={activeScenarioPins}
+/>
       </div>
     </main>
   )

@@ -14,3 +14,33 @@ export type ScenarioRegion = {
   primaryUseCase: string
   camera: MapCamera
 }
+
+export type ScoutPinType =
+  | 'camp'
+  | 'sign'
+  | 'water'
+  | 'glassing-point'
+  | 'trail-camera'
+  | 'wallow'
+  | 'access-point'
+  | 'truck'
+  | 'food'
+  | 'bedding'
+  | 'blood'
+  | 'shot'
+  | 'deer'
+  | 'elk'
+  | 'generic-marker'
+
+export type ScoutPinSource = 'simulated' | 'user'
+
+export type ScoutPin = {
+  id: string
+  scenarioId: string
+  name: string
+  type: ScoutPinType
+  coordinates: [number, number]
+  notes: string
+  observedAt: string
+  source: ScoutPinSource
+}
