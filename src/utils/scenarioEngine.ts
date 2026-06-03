@@ -368,6 +368,129 @@ const scenarioPinSeedsByRegion: Record<string, PinSeed[]> = {
   ],
 }
 
+const supplementalPinTemplates: Array<
+  Omit<PinSeed, 'longitudeOffset' | 'latitudeOffset' | 'observedAt'>
+> = [
+  {
+    name: 'Secondary glassing point',
+    type: 'glassing-point',
+    notes: 'Simulated secondary vantage point for comparing terrain visibility.',
+  },
+  {
+    name: 'Fresh sign note',
+    type: 'sign',
+    notes: 'Simulated field sign added to create a denser scouting pattern.',
+  },
+  {
+    name: 'Water check',
+    type: 'water',
+    notes: 'Simulated water-related observation for testing pin cleanup density.',
+  },
+  {
+    name: 'Bedding edge note',
+    type: 'bedding',
+    notes: 'Simulated bedding-style marker near cover-oriented terrain.',
+  },
+  {
+    name: 'Travel corridor marker',
+    type: 'generic-marker',
+    notes: 'Simulated waypoint representing a possible movement corridor.',
+  },
+  {
+    name: 'Camera candidate',
+    type: 'trail-camera',
+    notes: 'Simulated trail camera candidate used for workflow testing.',
+  },
+  {
+    name: 'Access note',
+    type: 'access-point',
+    notes: 'Simulated access marker near the edge of a scouting route.',
+  },
+  {
+    name: 'Food source note',
+    type: 'food',
+    notes: 'Simulated food-source marker for future grouping tests.',
+  },
+  {
+    name: 'Elk observation',
+    type: 'elk',
+    notes: 'Simulated elk observation used to test mixed pin metadata.',
+  },
+  {
+    name: 'Deer observation',
+    type: 'deer',
+    notes: 'Simulated deer observation used to test mixed pin metadata.',
+  },
+  {
+    name: 'Shot opportunity note',
+    type: 'shot',
+    notes: 'Simulated shot marker for testing hunt-log style metadata.',
+  },
+  {
+    name: 'Blood trail note',
+    type: 'blood',
+    notes: 'Simulated blood marker for testing recovery-style pin grouping.',
+  },
+]
+
+function hashString(value: string) {
+  let hash = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+
+  return hash
+}
+
+function createSeededRandom(seed: number) {
+  let value = seed
+
+  return () => {
+    value += 0x6d2b79f5
+
+    let result = value
+    result = Math.imul(result ^ (result >>> 15), result | 1)
+    result ^= result + Math.imul(result ^ (result >>> 7), result | 61)
+
+    return ((result ^ (result >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function createObservedDate(index: number) {
+  const day = 18 + (index % 10)
+
+  return `2026-08-${String(day).padStart(2, '0')}`
+}
+
+function createSupplementalPinSeed(
+  scenario: ScenarioRegion,
+  index: number,
+  random: () => number,
+): PinSeed {
+  const template = supplementalPinTemplates[index % supplementalPinTemplates.length]
+  const angle = random() * Math.PI * 2
+  const distance = 0.008 + random() * 0.038
+
+  const longitudeOffset = Math.cos(angle) * distance
+  const latitudeOffset = Math.sin(angle) * distance
+
+  return {
+    ...template,
+    name: template.name,
+    longitudeOffset,
+    latitudeOffset,
+    notes: `${template.notes} Scenario context: ${scenario.name}.`,
+    observedAt: createObservedDate(index),
+  }
+}
+
+function getScenarioPinCount(scenario: ScenarioRegion) {
+  const random = createSeededRandom(hashString(`${scenario.id}-pin-count`))
+
+  return 6 + Math.floor(random() * 25)
+}
+
 export function getNextScenario(
   scenarios: ScenarioRegion[],
   currentScenario: ScenarioRegion,
@@ -383,7 +506,16 @@ export function getNextScenario(
 
 export function createScenarioPins(scenario: ScenarioRegion): ScoutPin[] {
   const [centerLongitude, centerLatitude] = scenario.camera.center
-  const pinSeeds = scenarioPinSeedsByRegion[scenario.id] ?? fallbackPinSeeds
+  const basePinSeeds = scenarioPinSeedsByRegion[scenario.id] ?? fallbackPinSeeds
+  const targetPinCount = getScenarioPinCount(scenario)
+  const random = createSeededRandom(hashString(`${scenario.id}-pin-layout`))
+
+  const supplementalPinSeeds = Array.from(
+    { length: Math.max(targetPinCount - basePinSeeds.length, 0) },
+    (_, index) => createSupplementalPinSeed(scenario, index, random),
+  )
+
+  const pinSeeds = [...basePinSeeds, ...supplementalPinSeeds]
 
   return pinSeeds.map((pinSeed, index) => ({
     id: `${scenario.id}-pin-${index + 1}`,
