@@ -7,6 +7,8 @@ type MapViewerProps = {
   activeScenario: ScenarioRegion
   activeScenarioPins: ScoutPin[]
   isAddingPin: boolean
+  pendingPinCoordinates: ScoutPin['coordinates'] | null
+  onChoosePinLocation: (coordinates: ScoutPin['coordinates']) => void
 }
 
 function formatPinType(type: ScoutPin['type']) {
@@ -20,10 +22,13 @@ function MapViewer({
   activeScenario,
   activeScenarioPins,
   isAddingPin,
-    }: MapViewerProps) {
+  pendingPinCoordinates,
+  onChoosePinLocation,
+}: MapViewerProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markerRefs = useRef<mapboxgl.Marker[]>([])
+  const pendingMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -82,11 +87,17 @@ function MapViewer({
     })
 
     return () => {
-      markerRefs.current.forEach((marker) => marker.remove())
-      markerRefs.current = []
-      map.remove()
-      mapRef.current = null
-    }
+        markerRefs.current.forEach((marker) => marker.remove())
+        markerRefs.current = []
+
+        if (pendingMarkerRef.current) {
+            pendingMarkerRef.current.remove()
+            pendingMarkerRef.current = null
+        }
+
+        map.remove()
+        mapRef.current = null
+}
   }, [])
 
   useEffect(() => {
@@ -157,6 +168,62 @@ function MapViewer({
       markerRefs.current.push(marker)
     })
   }, [activeScenarioPins])
+
+  useEffect(() => {
+  if (!mapRef.current) {
+    return
+  }
+
+  const map = mapRef.current
+
+  function handleMapClick(event: mapboxgl.MapMouseEvent) {
+    if (!isAddingPin) {
+      return
+    }
+
+    onChoosePinLocation([event.lngLat.lng, event.lngLat.lat])
+  }
+
+  map.on('click', handleMapClick)
+
+  return () => {
+    map.off('click', handleMapClick)
+  }
+}, [isAddingPin, onChoosePinLocation])
+
+useEffect(() => {
+  if (!mapRef.current) {
+    return
+  }
+
+  const map = mapRef.current
+
+  if (pendingMarkerRef.current) {
+    pendingMarkerRef.current.remove()
+    pendingMarkerRef.current = null
+  }
+
+  if (!pendingPinCoordinates) {
+    return
+  }
+
+  const markerElement = document.createElement('div')
+  markerElement.className =
+    'flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-slate-950 shadow-lg'
+
+  const markerDot = document.createElement('span')
+  markerDot.className = 'h-2.5 w-2.5 rounded-full bg-orange-400'
+  markerElement.appendChild(markerDot)
+
+  const marker = new mapboxgl.Marker({
+    element: markerElement,
+    anchor: 'center',
+  })
+    .setLngLat(pendingPinCoordinates)
+    .addTo(map)
+
+  pendingMarkerRef.current = marker
+}, [pendingPinCoordinates])
 
   return (
     <section className="relative h-full min-h-[640px] flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 shadow-sm">

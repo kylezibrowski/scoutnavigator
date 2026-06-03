@@ -18,6 +18,7 @@ type ControlPanelProps = {
   activeScenario: ScenarioRegion
   activeScenarioPins: ScoutPin[]
   isAddingPin: boolean
+  pendingPinCoordinates: ScoutPin['coordinates'] | null
   onGenerateScenario: () => void
   onStartAddingPin: () => void
   onCancelAddingPin: () => void
@@ -27,6 +28,7 @@ function ControlPanel({
   activeScenario,
   activeScenarioPins,
   isAddingPin,
+  pendingPinCoordinates,
   onGenerateScenario,
   onStartAddingPin,
   onCancelAddingPin,
@@ -97,6 +99,16 @@ function ControlPanel({
     Add a user-created scouting pin to the active scenario. You will choose the
     map location first, then enter the pin details.
   </p>
+
+  {pendingPinCoordinates && (
+  <div className="mt-3 rounded-xl bg-orange-50 px-3 py-2 text-xs leading-5 text-orange-800">
+    <p className="font-bold">Pending pin location selected</p>
+    <p>
+      Longitude: {pendingPinCoordinates[0].toFixed(5)} · Latitude:{' '}
+      {pendingPinCoordinates[1].toFixed(5)}
+    </p>
+  </div>
+)}
 
   {isAddingPin ? (
     <button
