@@ -1,4 +1,4 @@
-# ScoutNavigator Context — Phase 2 Complete
+# ScoutNavigator Context — Phase 3 Complete
 
 ## Project Name
 
@@ -62,20 +62,32 @@ The architecture should be designed so simulated features could later be replace
 ### Initial Load
 
 1. User opens app.
-2. App loads a simulated Mountain West / Idaho scouting scenario.
+2. App loads a simulated Idaho scouting scenario.
 3. Real Idaho terrain appears through Mapbox.
-4. Scouting pins and scenario data are displayed.
-5. The UI uses a light, OnX-inspired layout with a left rail and side content/control panel.
-6. The app clearly communicates that the scenario data is simulated.
+4. Scenario metadata appears in the control panel and map overlay.
+5. Scouting pins and scenario data will be displayed in the next phase.
+6. The UI uses a light, OnX-inspired layout with a left rail and side content/control panel.
+7. The app clearly communicates that the scenario data is simulated.
 
 ### Generate New Scenario
 
+Current Phase 3 behavior:
+
 1. User clicks **Generate New Scenario**.
-2. The map moves to a curated Idaho public-land or public-land-feeling region.
-3. Pins and simulated feature candidates regenerate.
-4. The scenario should feel believable and outdoors-oriented.
+2. The app cycles to the next curated Idaho scenario region.
+3. The map camera flies to that selected region.
+4. The scenario card text updates.
+5. The floating map overlay updates to show the active scenario.
+6. No pins are added yet.
+
+Backlogged future behavior:
+
+* Change Generate New Scenario from deterministic cycling to a random scenario generator that selects a different region.
+* Keep current cycling behavior for Phase 3 because it is predictable and easy to test.
 
 ### Pin Cleanup
+
+Future Phase 5 behavior:
 
 1. User clicks **Pin Cleanup**.
 2. The app analyzes scattered pins.
@@ -88,9 +100,11 @@ The architecture should be designed so simulated features could later be replace
 9. User can dismiss a recommendation.
 10. Dismissed recommendations clear until the next analysis.
 
+Pin Cleanup must never automatically reorganize the user’s data. It recommends, explains, and waits for user confirmation.
+
 ### Find Feature Terrains
 
-This is the moonshot feature.
+Future Phase 6 behavior:
 
 For v1, this should start as a structured selector, not a natural-language prompt.
 
@@ -226,7 +240,7 @@ Future options:
 * Let the map own more screen space.
 * Convert some controls into floating overlays once Mapbox is integrated.
 
-This is backlogged and should not block Phase 3.
+This is backlogged and should not block Phase 4.
 
 ---
 
@@ -279,16 +293,20 @@ Constrain v1 to Idaho.
 
 Use curated Idaho public-land or public-land-feeling regions rather than fully random statewide placement.
 
-Potential regions:
+Current Phase 3 curated scenario regions:
 
-* Boise National Forest
-* Sawtooth / Stanley area
-* Salmon-Challis region
-* Payette National Forest / McCall region
-* Clearwater / North Idaho
-* Central Idaho mountain zones
+1. Boise National Forest
+2. Sawtooth / Stanley Area
+3. Payette National Forest / McCall
+4. Salmon-Challis Region
+5. Southwest Idaho Region
+6. Panhandle / Lolo Region
 
 The app should avoid pretending to provide authoritative hunt recommendations for specific real-world units.
+
+The Southwest Idaho Region is inspired by terrain that may feel similar to areas around Idaho hunt areas 54, 55, and 56, but should not be framed as authoritative unit guidance.
+
+The Panhandle / Lolo Region can nod toward North Idaho and Lolo-style terrain, but should not claim to provide authoritative Lolo Zone hunt recommendations.
 
 ---
 
@@ -317,7 +335,7 @@ Because v1 does not perform true elevation analysis, the app must be transparent
 
 ## Current Technical Architecture
 
-Current structure after Phase 2:
+Current structure after Phase 3:
 
 ```text
 src/
@@ -327,6 +345,12 @@ src/
 │   ├── DemoDisclaimer.tsx
 │   ├── LeftRail.tsx
 │   └── MapViewer.tsx
+├── data/
+│   └── scenarioRegions.ts
+├── types/
+│   └── scout.ts
+├── utils/
+│   └── scenarioEngine.ts
 ├── App.tsx
 ├── App.css
 ├── index.css
@@ -364,6 +388,27 @@ src/
 
 ## Main Data Models
 
+Current Phase 3 models in `src/types/scout.ts`:
+
+```ts
+export type MapCamera = {
+  center: [number, number]
+  zoom: number
+  pitch: number
+  bearing: number
+}
+
+export type ScenarioRegion = {
+  id: string
+  name: string
+  subtitle: string
+  description: string
+  terrainNotes: string
+  primaryUseCase: string
+  camera: MapCamera
+}
+```
+
 The app should eventually model:
 
 * ScenarioRegion
@@ -379,6 +424,101 @@ The app should eventually model:
 * SavedFolderState
 
 Keep the data model clear and readable.
+
+---
+
+## Scenario Engine
+
+Phase 3 created:
+
+```text
+src/types/scout.ts
+src/data/scenarioRegions.ts
+src/utils/scenarioEngine.ts
+```
+
+Current scenario engine behavior:
+
+* App loads the first scenario from `scenarioRegions`.
+* Active scenario state lives in `AppShell.tsx`.
+* `ControlPanel` receives the active scenario and displays its metadata.
+* `MapViewer` receives the active scenario and uses its camera settings.
+* Clicking **Generate New Scenario** uses `getNextScenario` from `scenarioEngine.ts`.
+* The button cycles through the curated Idaho regions in order.
+* Mapbox camera flies to the selected region.
+* Floating map overlay displays the active scenario name.
+* No pins have been added yet.
+
+Current helper:
+
+```ts
+export function getNextScenario(
+  scenarios: ScenarioRegion[],
+  currentScenario: ScenarioRegion,
+) {
+  const currentIndex = scenarios.findIndex(
+    (scenario) => scenario.id === currentScenario.id,
+  )
+
+  const nextIndex = (currentIndex + 1) % scenarios.length
+
+  return scenarios[nextIndex]
+}
+```
+
+Backlog:
+
+* Add random scenario selection later.
+* It should choose a different region from the current active region.
+* Keep deterministic cycling for now because it is easier to test.
+
+---
+
+## Current Scenario Regions
+
+Current file:
+
+```text
+src/data/scenarioRegions.ts
+```
+
+The app currently includes six curated Idaho regions:
+
+### Boise National Forest
+
+* ID: `boise-national-forest`
+* Use case: Elk scouting and access planning
+* Terrain: mixed timber, drainages, ridge access east of Boise
+
+### Sawtooth / Stanley Area
+
+* ID: `sawtooth-stanley`
+* Use case: High-country glassing and route planning
+* Terrain: high-country basins, alpine relief, ridgelines, benches
+
+### Payette National Forest / McCall
+
+* ID: `mccall-payette`
+* Use case: Spring bear notes and elk preseason scouting
+* Terrain: timbered mountain country, lakes, creek systems, access corridors
+
+### Salmon-Challis Region
+
+* ID: `salmon-challis`
+* Use case: Backcountry scouting and multi-day planning
+* Terrain: remote central Idaho terrain, steep drainages, exposed ridges
+
+### Southwest Idaho Region
+
+* ID: `southwest-idaho`
+* Use case: Mule deer scouting and glassing routes
+* Terrain: open desert breaks, canyon country, sagebrush foothills, rimrock
+
+### Panhandle / Lolo Region
+
+* ID: `panhandle-lolo`
+* Use case: Elk scouting in timbered mountain terrain
+* Terrain: North Idaho timber, steep drainages, dense cover, creek bottoms
 
 ---
 
@@ -460,7 +600,7 @@ import.meta.env.VITE_MAPBOX_TOKEN
 
 ## Current Mapbox Implementation
 
-`MapViewer.tsx` now renders a real Mapbox map using:
+`MapViewer.tsx` renders a real Mapbox map using:
 
 * `mapbox-gl`
 * Mapbox outdoors style
@@ -469,15 +609,46 @@ import.meta.env.VITE_MAPBOX_TOKEN
 * Fog
 * Navigation control
 * Compact attribution control
-* Idaho-centered camera
+* Active scenario camera
 
-Current camera:
+Map style:
+
+```text
+mapbox://styles/mapbox/outdoors-v12
+```
+
+Terrain source:
+
+```text
+mapbox://mapbox.mapbox-terrain-dem-v1
+```
+
+Terrain exaggeration:
 
 ```ts
-center: [-115.1886, 44.2141],
-zoom: 10.2,
-pitch: 55,
-bearing: -18,
+exaggeration: 1.4
+```
+
+Current scenario camera pattern:
+
+```ts
+center: activeScenario.camera.center,
+zoom: activeScenario.camera.zoom,
+pitch: activeScenario.camera.pitch,
+bearing: activeScenario.camera.bearing,
+```
+
+Current scenario-change behavior:
+
+```ts
+mapRef.current.flyTo({
+  center: activeScenario.camera.center,
+  zoom: activeScenario.camera.zoom,
+  pitch: activeScenario.camera.pitch,
+  bearing: activeScenario.camera.bearing,
+  duration: 1200,
+  essential: true,
+})
 ```
 
 The user confirmed `zoom: 10.2` is a good default scenario starting point.
@@ -489,6 +660,12 @@ Notes:
 * Feature Finder may eventually use a tighter view, likely around zoom 11–12+ depending on feature type and screen size.
 
 `MapViewer.tsx` also has a visible missing-token fallback UI that tells the user to add `VITE_MAPBOX_TOKEN` to `.env`.
+
+The floating map overlay now shows:
+
+* Active Scenario
+* Active scenario name
+* “Simulated scouting context over real Idaho terrain.”
 
 ---
 
@@ -516,7 +693,7 @@ Future possible optimization:
 * dynamic import
 * chunking/code-splitting
 
-Do not address this yet. It is a future polish/performance item, not a Phase 3 blocker.
+Do not address this yet. It is a future polish/performance item, not a Phase 4 blocker.
 
 ---
 
@@ -568,13 +745,7 @@ Phase 0 was completed from scratch.
 git version 2.50.1 (Apple Git-155)
 ```
 
-* Git identity configured:
-
-```text
-user.name=Kyle Zibrowski
-user.email=[correct GitHub email]
-```
-
+* Git identity configured.
 * Node.js installed:
 
 ```text
@@ -628,32 +799,12 @@ README.md
 context.md
 ```
 
-`.gitignore` now includes environment exclusions for:
+`.gitignore` includes environment exclusions for:
 
 ```text
 .env
 .env.local
 .env.*.local
-```
-
-Important reason:
-
-* `.env` is ignored so the real Mapbox token will not be committed to GitHub.
-* `.env.example` is committed with placeholder text only.
-
-### First Commit Created
-
-First local commit:
-
-```bash
-git add .
-git commit -m "Initial project setup"
-```
-
-Commit message:
-
-```text
-Initial project setup
 ```
 
 ### GitHub Repository Created
@@ -676,134 +827,40 @@ Repository description:
 Field Intelligence for Outdoor Nav
 ```
 
-License:
-
-```text
-No license
-```
-
-Initial GitHub repo was created empty so it would not conflict with local files.
-
-### Local Repo Connected to GitHub
-
-Remote added:
-
-```bash
-git remote add origin https://github.com/kylezibrowski/scoutnavigator.git
-```
-
-Initial push completed.
-
-Remote verification:
-
-```text
-origin  https://github.com/kylezibrowski/scoutnavigator.git (fetch)
-origin  https://github.com/kylezibrowski/scoutnavigator.git (push)
-```
-
 ---
 
 ## Completed Phase 1 — Project Scaffold and Shell
 
 Phase 1 is complete.
 
-### Phase 1 Goals
-
-Create:
+Created:
 
 * Vite React TypeScript app
 * Tailwind setup
-* Base layout
-* README update
+* Base ScoutNavigator layout
 * Componentized shell
+* ScoutNavigator README
 
-Success criteria:
+Success criteria met:
 
 * `npm run dev` works.
 * App opens locally.
 * ScoutNavigator shell appears.
-* Repo is committed and pushed.
-* Git status is clean.
+* GitHub repo is updated.
+* Working tree is clean.
 
-All criteria were met.
-
-### Vite Scaffold
-
-Scaffolded Vite React TypeScript app inside existing repo folder:
+Current Phase 1 components:
 
 ```text
-/Users/kylezibrowski/Projects/scoutnavigator
+src/components/
+├── AppShell.tsx
+├── ControlPanel.tsx
+├── DemoDisclaimer.tsx
+├── LeftRail.tsx
+└── MapViewer.tsx
 ```
 
-Important: no nested `scoutnavigator/scoutnavigator` folder was created.
-
-Command used:
-
-```bash
-npm create vite@latest . -- --template react-ts
-```
-
-Installed dependencies:
-
-```bash
-npm install
-```
-
-Confirmed local app ran:
-
-```bash
-npm run dev
-```
-
-Local URL:
-
-```text
-http://localhost:5173/
-```
-
-Commit created:
-
-```text
-Scaffold Vite React TypeScript app
-```
-
-### Tailwind Setup
-
-Tailwind installed:
-
-```bash
-npm install tailwindcss @tailwindcss/vite
-```
-
-Updated:
-
-```text
-vite.config.ts
-src/index.css
-src/App.css
-```
-
-`vite.config.ts` uses:
-
-```ts
-import tailwindcss from '@tailwindcss/vite'
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-})
-```
-
-`src/index.css` imports Tailwind:
-
-```css
-@import "tailwindcss";
-```
-
-### Initial ScoutNavigator Shell
-
-The default Vite starter page was replaced with a ScoutNavigator application shell.
-
-Current UI includes:
+The shell includes:
 
 * Left rail with `SN` mark.
 * Map / Pins / Folders / Tools placeholders.
@@ -816,405 +873,12 @@ Current UI includes:
 * Saved Folders placeholder list.
 * Recent Pins placeholder list.
 * Right-side map area.
-* Phase 1 placeholder was replaced by Mapbox in Phase 2.
-
-Commit created:
-
-```text
-Build initial ScoutNavigator shell
-```
-
-### Component Refactor
-
-The large initial `App.tsx` was refactored into smaller components:
-
-```text
-src/components/
-├── AppShell.tsx
-├── ControlPanel.tsx
-├── DemoDisclaimer.tsx
-├── LeftRail.tsx
-└── MapViewer.tsx
-```
-
-`App.tsx` is now a small entry point that renders `AppShell`.
-
-Refactor purpose:
-
-* Improve readability.
-* Prepare for Mapbox integration.
-* Make future features easier to slot into focused files.
-* Keep the repo portfolio-readable.
-
-Commit created:
-
-```text
-Refactor shell into components
-```
-
-### Demo Disclaimer Fix
-
-Fixed typo/redundant wording in demo disclaimer.
-
-Final copy:
-
-```text
-Scenarios use simulated scouting data layered over real Idaho terrain.
-```
-
-Commit created:
-
-```text
-Fix demo disclaimer copy
-```
-
-### README Update
-
-README was updated from default Vite content to ScoutNavigator-specific documentation.
-
-README now includes:
-
-* Project name and positioning.
-* Current status.
-* Product direction.
-* Demo Mode disclaimer.
-* Tech stack.
-* Development commands.
-* Build philosophy.
-* Known limitations.
-
-Commit created:
-
-```text
-Update README for Phase 1 ScoutNavigator shell
-```
-
-Final verified status after Phase 1:
-
-```text
-On branch main
-Your branch is up to date with 'origin/main'.
-
-nothing to commit, working tree clean
-```
 
 ---
 
 ## Completed Phase 2 — Mapbox Integration
 
 Phase 2 is complete.
-
-### Phase 2 Goals
-
-Create:
-
-* Mapbox token setup.
-* `.env` and `.env.example`.
-* `MapViewer.tsx` real Mapbox integration.
-* Initial Idaho map view.
-* Terrain/pitched map feel.
-
-Success criteria:
-
-* Map loads locally.
-* No token errors.
-* Camera starts in Idaho.
-* Existing shell remains intact.
-* Real Mapbox map replaces placeholder area.
-* `.env` remains uncommitted.
-* `.env.example` is committed with placeholder token text.
-
-All criteria were met.
-
-### Environment Files
-
-Created local private `.env`:
-
-```text
-VITE_MAPBOX_TOKEN=[real Mapbox public token]
-```
-
-Created committed `.env.example`:
-
-```text
-VITE_MAPBOX_TOKEN=replace_with_your_mapbox_token
-```
-
-Updated `.gitignore` to include:
-
-```text
-# Environment variables
-.env
-.env.local
-.env.*.local
-```
-
-Verified:
-
-```bash
-git check-ignore -v .env
-```
-
-Output confirmed `.env` is ignored by `.gitignore`.
-
-### Mapbox GL JS Installed
-
-Installed:
-
-```bash
-npm install mapbox-gl
-```
-
-Files changed:
-
-```text
-package.json
-package-lock.json
-```
-
-### Real Mapbox Map Added
-
-`src/components/MapViewer.tsx` was updated to use:
-
-```ts
-import mapboxgl from "mapbox-gl"
-import "mapbox-gl/dist/mapbox-gl.css"
-```
-
-The placeholder map was replaced with a real Mapbox map.
-
-Map style:
-
-```text
-mapbox://styles/mapbox/outdoors-v12
-```
-
-Initial broad Phase 2 camera:
-
-```ts
-center: [-115.1886, 44.2141],
-zoom: 8.2,
-pitch: 55,
-bearing: -18,
-```
-
-Terrain source:
-
-```text
-mapbox://mapbox.mapbox-terrain-dem-v1
-```
-
-Terrain exaggeration:
-
-```ts
-exaggeration: 1.4
-```
-
-Map controls:
-
-* Navigation control at top-right.
-* Compact attribution control at bottom-right.
-
-Build check:
-
-```bash
-npm run build
-```
-
-Succeeded.
-
-Commit created:
-
-```text
-Integrate Mapbox terrain map
-```
-
-Push completed.
-
-Final status was clean.
-
----
-
-## Completed Phase 2.1 — Mapbox Viewer Polish and Stability
-
-Phase 2.1 is complete.
-
-### Purpose
-
-Phase 2.1 was an optimization and stability slice before moving into scenario logic.
-
-It was not a new feature phase.
-
-### Completed Changes
-
-1. Confirmed `AppShell.tsx` imports `MapViewer` as a default import:
-
-```ts
-import MapViewer from './MapViewer'
-```
-
-2. Cleaned up `MapViewer.tsx` export style to use only:
-
-```ts
-export default MapViewer
-```
-
-3. Added a visible missing-token fallback UI.
-
-If `VITE_MAPBOX_TOKEN` is missing, the map area now shows a readable setup message rather than leaving the app blank.
-
-4. Preserved console error for developer troubleshooting:
-
-```ts
-console.error("Missing VITE_MAPBOX_TOKEN environment variable.")
-```
-
-5. Tightened the default map view from:
-
-```ts
-zoom: 8.2
-```
-
-to:
-
-```ts
-zoom: 10.2
-```
-
-The user confirmed `zoom: 10.2` is a good default starting point for a hunting/scouting scenario and is easy to modify later.
-
-6. Ran local app.
-
-Confirmed:
-
-* ScoutNavigator shell loads.
-* Mapbox map loads.
-* Idaho terrain view is tighter and visually appropriate.
-* Demo Mode disclaimer remains correct.
-* No token/rendering errors.
-
-7. Ran production build:
-
-```bash
-npm run build
-```
-
-Build succeeded.
-
-The Mapbox bundle-size warning appeared again and remains non-blocking.
-
-Commit created:
-
-```text
-Polish Mapbox viewer setup
-```
-
-Push completed.
-
-Final status:
-
-```text
-On branch main
-Your branch is up to date with 'origin/main'.
-
-nothing to commit, working tree clean
-```
-
----
-
-## Recommended Next Phase
-
-### Phase 3 — Scenario Engine
-
-Status: **Next**
-
-Start Phase 3 in a new chat using this updated context file.
-
-Recommended Phase 3 approach:
-
-1. Create TypeScript data models first.
-2. Create curated Idaho scenario regions.
-3. Keep region data simple and readable.
-4. Wire the existing **Generate New Scenario** button to select a different region.
-5. Move the Mapbox camera to the selected region.
-6. Update the scenario name/description in the control panel.
-7. Do not add pins until the scenario region switching works.
-8. Run locally.
-9. Build.
-10. Commit and push.
-
-### Phase 3 First Slice Recommendation
-
-Start with these files:
-
-```text
-src/types/scout.ts
-src/data/scenarioRegions.ts
-```
-
-Then minimally update:
-
-```text
-src/App.tsx or src/components/AppShell.tsx
-src/components/ControlPanel.tsx
-src/components/MapViewer.tsx
-```
-
-But do not overbuild.
-
-The clean first deliverable should be:
-
-* App loads an initial scenario region.
-* **Generate New Scenario** changes the active scenario.
-* Map camera flies to the new scenario region.
-* Scenario card text updates.
-* No pins yet.
-* No feature candidates yet.
-* No Pin Cleanup logic yet.
-
----
-
-## Recommended Build Phases
-
-### Phase 0 — Account and Tool Setup
-
-Status: **Complete**
-
-Set up:
-
-* GitHub account
-* Git installed locally
-* Node.js installed locally
-* VS Code
-* Mapbox account
-* Vercel account
-* Local project folder
-* GitHub repository
-
-### Phase 1 — Project Scaffold
-
-Status: **Complete**
-
-Created:
-
-* Vite React TypeScript app
-* Tailwind setup
-* Base ScoutNavigator layout
-* Componentized shell
-* ScoutNavigator README
-* Updated context file
-
-Success criteria met:
-
-* `npm run dev` works.
-* App opens locally.
-* ScoutNavigator shell appears.
-* GitHub repo is updated.
-* Working tree is clean.
-
-### Phase 2 — Mapbox Integration
-
-Status: **Complete**
 
 Created:
 
@@ -1230,30 +894,41 @@ Created:
 * Built successfully.
 * Committed and pushed.
 
-### Phase 2.1 — Mapbox Viewer Polish
+---
 
-Status: **Complete**
+## Completed Phase 2.1 — Mapbox Viewer Polish and Stability
 
-Created:
+Phase 2.1 is complete.
 
-* Clean default export in `MapViewer.tsx`.
-* Missing-token fallback UI.
-* Tighter scouting-oriented default zoom.
-* Production build verification.
-* Commit and push.
+Completed:
 
-### Phase 3 — Scenario Engine
+1. Confirmed `AppShell.tsx` imports `MapViewer` as a default import.
+2. Cleaned up `MapViewer.tsx` export style to use only `export default MapViewer`.
+3. Added visible missing-token fallback UI.
+4. Preserved console error for developer troubleshooting.
+5. Tightened default map view from `zoom: 8.2` to `zoom: 10.2`.
+6. Ran local app.
+7. Confirmed map loads and view feels appropriate.
+8. Ran production build.
+9. Committed and pushed.
 
-Status: **Next**
+---
+
+## Completed Phase 3 — Scenario Engine
+
+Phase 3 is complete.
+
+### Phase 3 Goals
 
 Create:
 
-* Core types.
+* Core TypeScript data models.
 * Curated Idaho scenario regions.
 * Active scenario state.
 * Generate New Scenario behavior.
 * Map camera movement to new region.
 * Scenario card updates.
+* Floating map overlay update.
 
 Success criteria:
 
@@ -1261,16 +936,182 @@ Success criteria:
 * Generate New Scenario changes the active Idaho region.
 * Map moves to the new Idaho region.
 * Scenario panel updates.
+* Floating map overlay updates.
 * No simulated pins yet.
 * Build passes.
 * Git status is clean and pushed.
 
+All criteria were met.
+
+### Phase 3 Files Created
+
+```text
+src/types/scout.ts
+src/data/scenarioRegions.ts
+src/utils/scenarioEngine.ts
+```
+
+### Phase 3 Files Updated
+
+```text
+src/components/AppShell.tsx
+src/components/ControlPanel.tsx
+src/components/MapViewer.tsx
+```
+
+### Phase 3 Behavior
+
+The app now:
+
+1. Loads the first scenario from `scenarioRegions`.
+2. Stores active scenario state in `AppShell`.
+3. Passes the active scenario into `ControlPanel`.
+4. Passes the active scenario into `MapViewer`.
+5. Cycles through six curated Idaho regions when the user clicks **Generate New Scenario**.
+6. Flies the Mapbox camera to the selected region.
+7. Updates the scenario card text.
+8. Updates the floating map overlay.
+9. Keeps all scouting data honest as simulated.
+10. Does not render pins yet.
+
+### Phase 3 Commits
+
+Completed and pushed:
+
+```text
+Add scenario region engine
+Extract scenario engine helper
+Show active scenario on map overlay
+```
+
+---
+
+## Recommended Next Phase
+
 ### Phase 4 — Scenario Pins and UI Panels
+
+Status: **Next**
+
+Phase 4 should add simulated pins tied to the active scenario.
+
+Recommended Phase 4 approach:
+
+1. Extend `src/types/scout.ts` with:
+
+   * `ScoutPinType`
+   * `ScoutPin`
+   * Possibly `ScenarioPinSet` or add pins to generated scenario output later.
+2. Create simple pin data or a deterministic pin generator.
+3. Keep pins simulated and scenario-relative.
+4. Render pins on the Mapbox map.
+5. Update Recent Pins list to use active scenario pins instead of static placeholders.
+6. Keep Saved Folders static or lightly scenario-aware for now.
+7. Do not start Pin Cleanup logic yet.
+8. Run locally.
+9. Build.
+10. Commit and push.
+
+### Phase 4 First Slice Recommendation
+
+Start with:
+
+```text
+src/types/scout.ts
+src/utils/scenarioEngine.ts
+```
+
+Then update:
+
+```text
+src/components/AppShell.tsx
+src/components/ControlPanel.tsx
+src/components/MapViewer.tsx
+```
+
+Clean first deliverable:
+
+* Each active scenario has a small set of simulated pins.
+* Pins render on the map.
+* Recent Pins updates based on active scenario.
+* Scenario switching regenerates or changes pins.
+* No Pin Cleanup logic yet.
+* No Feature Finder yet.
+
+### Phase 4 Pin Strategy Recommendation
+
+Use a deterministic generator first, not full randomization.
+
+Reason:
+
+* Easier to test.
+* Easier to explain.
+* Easier to debug.
+* Better for portfolio reviewers because the demo behaves consistently.
+
+Possible strategy:
+
+* Each scenario gets 6–10 simulated pins.
+* Pins are created around the scenario camera center using small coordinate offsets.
+* Pin types should be plausible for the region.
+* Keep pins visually obvious.
+* Use simple Mapbox markers first before building custom layers.
+
+Possible first pin types:
+
+* Camp
+* Sign
+* Water
+* Glassing Point
+* Trail Camera
+* Wallow
+* Access Point
+* Bedding
+
+Do not overbuild clustering, folders, or cleanup yet.
+
+---
+
+## Recommended Build Phases
+
+### Phase 0 — Account and Tool Setup
+
+Status: **Complete**
+
+### Phase 1 — Project Scaffold
+
+Status: **Complete**
+
+### Phase 2 — Mapbox Integration
+
+Status: **Complete**
+
+### Phase 2.1 — Mapbox Viewer Polish
+
+Status: **Complete**
+
+### Phase 3 — Scenario Engine
+
+Status: **Complete**
+
+Created:
+
+* Core types.
+* Curated Idaho scenario regions.
+* Scenario engine helper.
+* Active scenario state.
+* Generate New Scenario behavior.
+* Map camera movement to new region.
+* Scenario card updates.
+* Floating map overlay updates.
+
+### Phase 4 — Scenario Pins and UI Panels
+
+Status: **Next**
 
 Create:
 
 * Pin types and colors.
-* Simulated pin generator.
+* Simulated pin generator or deterministic pin sets.
 * Pin markers on the map.
 * Recent pins list tied to active scenario.
 * Saved folders list tied to simulated state.
@@ -1279,8 +1120,9 @@ Success criteria:
 
 * Pins render on the map.
 * Pins show in the side panel.
-* Scenario changes regenerate pins.
+* Scenario changes update pins.
 * UI resembles a light outdoor-nav product.
+* No Pin Cleanup logic yet.
 
 ### Phase 5 — Pin Cleanup
 
@@ -1364,6 +1206,7 @@ Success criteria:
 
 Potential future improvements:
 
+* Add random scenario generation.
 * Add real GIS layers.
 * Add public land overlay.
 * Add trail/road-aware placement.
@@ -1389,6 +1232,8 @@ Potential future improvements:
 * Backend: none for v1.
 * Geography: Idaho.
 * Scenario strategy: curated public-land/public-land-feeling regions.
+* Current scenario behavior: deterministic cycling.
+* Random scenario behavior: backlogged.
 * Terrain strategy: real map terrain plus simulated scenario intelligence.
 * Primary feature: Pin Cleanup.
 * Moonshot feature: Find Feature Terrains.
@@ -1426,4 +1271,42 @@ Potential future improvements:
 
 Start a new chat and upload this `context.md` file.
 
-Then use the prompt below.
+Then use this prompt:
+
+```text
+Continue the ScoutNavigator build from the uploaded context.md file.
+
+We completed Phase 0, Phase 1, Phase 2, Phase 2.1, and Phase 3.
+
+We are starting Phase 4: Scenario Pins and UI Panels.
+
+Walk me through the next steps slowly, assuming I am comfortable with the terminal but need commands and file changes explained clearly.
+
+Important working style:
+
+* Keep this hand-held and step-by-step.
+* Do not jump ahead or collapse multiple actions into vague instructions.
+* Explain what each command or file change does in plain English.
+* Pause after small chunks so I can confirm before moving forward.
+* Build in small slices, run locally, fix errors, run build when appropriate, commit, push, and then continue.
+* Before any commit, help me confirm the app works and git status looks right.
+* Do not create a nested scoutnavigator/scoutnavigator folder.
+* The project lives at /Users/kylezibrowski/Projects/scoutnavigator.
+* Preserve the existing ScoutNavigator shell and Mapbox map.
+* Keep the app honest that scouting data is simulated.
+* The Demo Mode disclaimer should remain: “Scenarios use simulated scouting data layered over real Idaho terrain.”
+* The middle control panel may eventually become smaller, collapsible, or semi-transparent, but that is backlogged and should not block Phase 4.
+
+Phase 4 should start with simulated scenario pins:
+
+1. Extend the TypeScript data models for ScoutPin and ScoutPinType.
+2. Add deterministic simulated pin data or a simple deterministic pin generator.
+3. Tie pins to the active scenario.
+4. Render pins on the Mapbox map.
+5. Update Recent Pins to use active scenario pins instead of static placeholders.
+6. Do not start Pin Cleanup logic yet.
+7. Do not start Feature Finder yet.
+8. Run locally and verify pins update with scenario switching.
+9. Fix errors.
+10. Commit and push only after the working pin slice is confirmed.
+```
