@@ -1,35 +1,84 @@
+import { useEffect, useRef } from "react"
+import mapboxgl from "mapbox-gl"
+import "mapbox-gl/dist/mapbox-gl.css"
+
 function MapViewer() {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<mapboxgl.Map | null>(null)
+
+  useEffect(() => {
+    const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
+
+    if (!mapboxToken) {
+      console.error("Missing VITE_MAPBOX_TOKEN environment variable.")
+      return
+    }
+
+    if (!mapContainerRef.current || mapRef.current) {
+      return
+    }
+
+    mapboxgl.accessToken = mapboxToken
+
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: "mapbox://styles/mapbox/outdoors-v12",
+      center: [-115.1886, 44.2141],
+      zoom: 8.2,
+      pitch: 55,
+      bearing: -18,
+      attributionControl: false,
+    })
+
+    mapRef.current = map
+
+    map.addControl(new mapboxgl.NavigationControl(), "top-right")
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-right")
+
+    map.on("load", () => {
+      map.addSource("mapbox-dem", {
+        type: "raster-dem",
+        url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+        tileSize: 512,
+        maxzoom: 14,
+      })
+
+      map.setTerrain({
+        source: "mapbox-dem",
+        exaggeration: 1.4,
+      })
+
+      map.setFog({
+        color: "rgb(245, 247, 250)",
+        "high-color": "rgb(210, 220, 235)",
+        "horizon-blend": 0.2,
+      })
+    })
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+    }
+  }, [])
+
   return (
-    <section className="relative flex flex-1 flex-col bg-[#d9d2c4]">
-      <div className="absolute left-6 top-6 z-10 rounded-2xl border border-white/70 bg-white/90 px-5 py-4 shadow-lg backdrop-blur">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
-          Current Region
+    <section className="relative h-full min-h-[640px] flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 shadow-sm">
+      <div ref={mapContainerRef} className="h-full w-full" />
+
+      <div className="absolute left-5 top-5 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+          Idaho Terrain
         </p>
-        <h2 className="mt-1 text-xl font-black text-slate-950">
-          Idaho Terrain Preview
-        </h2>
-        <p className="mt-1 max-w-md text-sm text-slate-600">
-          Mapbox terrain loads in Phase 2. This placeholder gives us the final
-          product layout before wiring the real map.
+        <p className="mt-1 text-sm font-semibold text-slate-900">
+          Mapbox terrain foundation
         </p>
-      </div>
-
-      <div className="grid h-full place-items-center">
-        <div className="relative h-[620px] w-[78%] overflow-hidden rounded-[2rem] border border-white/70 bg-[#b9c3a3] shadow-2xl">
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.35)_0%,rgba(255,255,255,0)_35%),radial-gradient(circle_at_20%_30%,rgba(255,255,255,0.5),transparent_18%),radial-gradient(circle_at_65%_70%,rgba(84,104,68,0.35),transparent_24%),radial-gradient(circle_at_75%_20%,rgba(80,96,62,0.3),transparent_18%)]" />
-
-          <div className="absolute left-[26%] top-[34%] h-5 w-5 rounded-full border-4 border-white bg-orange-500 shadow-lg" />
-          <div className="absolute left-[52%] top-[48%] h-5 w-5 rounded-full border-4 border-white bg-blue-500 shadow-lg" />
-          <div className="absolute left-[61%] top-[31%] h-5 w-5 rounded-full border-4 border-white bg-emerald-600 shadow-lg" />
-          <div className="absolute left-[42%] top-[62%] h-5 w-5 rounded-full border-4 border-white bg-red-500 shadow-lg" />
-
-          <div className="absolute bottom-5 left-5 rounded-xl bg-white/90 px-4 py-3 text-sm font-semibold text-slate-700 shadow">
-            Map placeholder · Phase 1
-          </div>
-        </div>
+        <p className="mt-1 max-w-64 text-xs leading-5 text-slate-600">
+          Simulated scouting layers will be added over real Idaho terrain in the next phase.
+        </p>
       </div>
     </section>
   )
 }
 
+export { MapViewer }
 export default MapViewer
