@@ -78,7 +78,6 @@ function AppShell() {
         onGenerateScenario={handleGenerateScenario}
         onStartAddingPin={handleStartAddingPin}
         onCancelAddingPin={handleCancelAddingPin}
-        onSaveUserPin={handleSaveUserPin}
       />
 
       <MapViewer
@@ -86,8 +85,11 @@ function AppShell() {
         activeScenarioPins={activeScenarioPins}
         isAddingPin={isAddingPin}
         pendingPinCoordinates={pendingPinCoordinates}
+        onStartAddingPin={handleStartAddingPin}
+        onCancelAddingPin={handleCancelAddingPin}
         onChoosePinLocation={handleChoosePinLocation}
-      />
+        onSaveUserPin={handleSaveUserPin}
+        />
     </main>
   )
 }

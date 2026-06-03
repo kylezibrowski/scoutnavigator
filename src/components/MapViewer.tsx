@@ -1,15 +1,36 @@
 import { useEffect, useRef, useState } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import type { ScenarioRegion, ScoutPin } from '../types/scout'
+import type { ScenarioRegion, ScoutPin, UserPinDraft } from '../types/scout'
 
 type MapViewerProps = {
   activeScenario: ScenarioRegion
   activeScenarioPins: ScoutPin[]
   isAddingPin: boolean
   pendingPinCoordinates: ScoutPin['coordinates'] | null
+  onStartAddingPin: () => void
+  onCancelAddingPin: () => void
   onChoosePinLocation: (coordinates: ScoutPin['coordinates']) => void
+  onSaveUserPin: (pinDraft: UserPinDraft) => void
 }
+
+const pinTypeOptions: Array<{ value: UserPinDraft['type']; label: string }> = [
+  { value: 'camp', label: 'Camp' },
+  { value: 'sign', label: 'Sign' },
+  { value: 'water', label: 'Water' },
+  { value: 'glassing-point', label: 'Glassing Point' },
+  { value: 'trail-camera', label: 'Trail Camera' },
+  { value: 'wallow', label: 'Wallow' },
+  { value: 'access-point', label: 'Access Point' },
+  { value: 'truck', label: 'Truck' },
+  { value: 'food', label: 'Food' },
+  { value: 'bedding', label: 'Bedding' },
+  { value: 'blood', label: 'Blood' },
+  { value: 'shot', label: 'Shot' },
+  { value: 'deer', label: 'Deer' },
+  { value: 'elk', label: 'Elk' },
+  { value: 'generic-marker', label: 'Generic Marker' },
+]
 
 function formatPinType(type: ScoutPin['type']) {
   return type
@@ -23,8 +44,40 @@ function MapViewer({
   activeScenarioPins,
   isAddingPin,
   pendingPinCoordinates,
+  onStartAddingPin,
+  onCancelAddingPin,
   onChoosePinLocation,
+  onSaveUserPin,
 }: MapViewerProps) {
+      const [newPinDraft, setNewPinDraft] = useState<UserPinDraft>({
+    name: '',
+    type: 'generic-marker',
+    notes: '',
+  })
+
+  const handleCancelNewPin = () => {
+    setNewPinDraft({
+      name: '',
+      type: 'generic-marker',
+      notes: '',
+    })
+
+    onCancelAddingPin()
+  }
+
+  const handleSaveNewPin = () => {
+    onSaveUserPin({
+      name: newPinDraft.name.trim() || 'Untitled Pin',
+      type: newPinDraft.type,
+      notes: newPinDraft.notes.trim(),
+    })
+
+    setNewPinDraft({
+      name: '',
+      type: 'generic-marker',
+      notes: '',
+    })
+  }
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markerRefs = useRef<mapboxgl.Marker[]>([])
@@ -247,25 +300,137 @@ return (
         </div>
       )}
 
-      <div className="absolute left-5 top-5 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
-          Active Scenario
-        </p>
-        <p className="mt-1 text-sm font-semibold text-slate-900">
-          {activeScenario.name}
-        </p>
-        <p className="mt-1 max-w-64 text-xs leading-5 text-slate-600">
-          Simulated scouting context over real Idaho terrain.
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          {activeScenarioPins.length} simulated pins loaded.
-        </p>
-        {isAddingPin && (
-            <p className="mt-2 rounded-lg bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700">
-            Add Pin mode active — click the map to choose a location.
-            </p>
-            )}
+<div className="absolute left-5 top-5 w-72 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+  {isAddingPin ? (
+    <>
+  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+    {pendingPinCoordinates ? 'New Pin' : 'Add Pin Mode'}
+  </p>
+
+  {!pendingPinCoordinates ? (
+    <>
+      <p className="mt-1 text-sm font-semibold text-slate-900">
+        Click the map to place a pin
+      </p>
+
+      <p className="mt-1 text-xs leading-5 text-slate-600">
+        Drop a waypoint on the map, then add the pin details without leaving the map view.
+      </p>
+
+      <button
+        type="button"
+        onClick={handleCancelNewPin}
+        className="mt-4 w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+      >
+        Cancel Add Pin
+      </button>
+    </>
+  ) : (
+    <>
+      <p className="mt-1 text-sm font-semibold text-slate-900">
+        Add pin details
+      </p>
+
+      <div className="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+        <p>Lng: {pendingPinCoordinates[0].toFixed(5)}</p>
+        <p>Lat: {pendingPinCoordinates[1].toFixed(5)}</p>
       </div>
+
+      <label className="mt-3 block text-xs font-semibold text-slate-700">
+        Pin Name
+        <input
+          type="text"
+          value={newPinDraft.name}
+          onChange={(event) =>
+            setNewPinDraft((currentDraft) => ({
+              ...currentDraft,
+              name: event.target.value,
+            }))
+          }
+          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+          placeholder="Example: North ridge glassing"
+        />
+      </label>
+
+      <label className="mt-3 block text-xs font-semibold text-slate-700">
+        Pin Type
+        <select
+          value={newPinDraft.type}
+          onChange={(event) =>
+            setNewPinDraft((currentDraft) => ({
+              ...currentDraft,
+              type: event.target.value as UserPinDraft['type'],
+            }))
+          }
+          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+        >
+          {pinTypeOptions.map((pinType) => (
+            <option key={pinType.value} value={pinType.value}>
+              {pinType.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="mt-3 block text-xs font-semibold text-slate-700">
+        Notes
+        <textarea
+          value={newPinDraft.notes}
+          onChange={(event) =>
+            setNewPinDraft((currentDraft) => ({
+              ...currentDraft,
+              notes: event.target.value,
+            }))
+          }
+          className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+          placeholder="Add context about why this spot matters."
+        />
+      </label>
+
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={handleSaveNewPin}
+          className="flex-1 rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700"
+        >
+          Save Pin
+        </button>
+
+        <button
+          type="button"
+          onClick={handleCancelNewPin}
+          className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+        >
+          Cancel
+        </button>
+      </div>
+    </>
+  )}
+</>
+  ) : (
+    <>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+        Map Tools
+      </p>
+
+      <p className="mt-1 text-sm font-semibold text-slate-900">
+        Add a scouting pin
+      </p>
+
+      <p className="mt-1 text-xs leading-5 text-slate-600">
+        Click Add Pin, then choose a location on the map.
+      </p>
+
+      <button
+        type="button"
+        onClick={onStartAddingPin}
+        className="mt-4 w-full rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700"
+      >
+        Add Pin
+      </button>
+    </>
+  )}
+</div>
     </section>
   )
 }
