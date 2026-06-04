@@ -50,3 +50,32 @@ export type UserPinDraft = {
   type: ScoutPinType
   notes: string
 }
+
+export type PinCleanupSuggestion = {
+  id: string
+  scenarioId: string
+  title: string
+  suggestedFolderName: string
+  pinIds: string[]
+  explanation: string[]
+  confidence: number
+}
+
+export type PinCleanupDraftAssignment = {
+  pinId: string
+  destinationFolderId: string | 'recommended' | 'none'
+}
+
+export type AcceptCleanupSuggestionInput = {
+  suggestionId: string
+  folderName: string
+  pinAssignments: PinCleanupDraftAssignment[]
+}
+
+export type SavedPinFolder = {
+  id: string
+  name: string
+  scenarioId: string
+  pinIds: string[]
+  createdAt: string
+}

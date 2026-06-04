@@ -3,7 +3,15 @@ import LeftRail from './LeftRail'
 import MapViewer from './MapViewer'
 import { scenarioRegions } from '../data/scenarioRegions'
 import { createScenarioPins, getNextScenario } from '../utils/scenarioEngine'
-import type { ScenarioRegion, ScoutPin, UserPinDraft } from '../types/scout'
+import { createPinCleanupSuggestions } from '../utils/pinCleanupEngine'
+import type {
+  AcceptCleanupSuggestionInput,
+  PinCleanupSuggestion,
+  SavedPinFolder,
+  ScenarioRegion,
+  ScoutPin,
+  UserPinDraft,
+} from '../types/scout'
 
 function AppShell() {
   const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
@@ -15,6 +23,18 @@ function AppShell() {
   >(null)
   const [userPins, setUserPins] = useState<ScoutPin[]>([])
 
+    const [isCleanupPanelOpen, setIsCleanupPanelOpen] = useState(false)
+    const [isAnalyzingCleanup, setIsAnalyzingCleanup] = useState(false)
+    const [cleanupSuggestions, setCleanupSuggestions] = useState<
+    PinCleanupSuggestion[]
+    >([])
+  const [hoveredCleanupSuggestionId, setHoveredCleanupSuggestionId] = useState<
+    string | null
+    >(null)
+  const [dismissedCleanupSuggestionIds, setDismissedCleanupSuggestionIds] =
+    useState<string[]>([])
+  const [savedPinFolders, setSavedPinFolders] = useState<SavedPinFolder[]>([])
+
   const simulatedScenarioPins = createScenarioPins(activeScenario)
   const activeScenarioPins = [
     ...simulatedScenarioPins,
@@ -22,13 +42,16 @@ function AppShell() {
   ]
 
   function handleGenerateScenario() {
-    setIsAddingPin(false)
-    setPendingPinCoordinates(null)
+  setIsAddingPin(false)
+  setPendingPinCoordinates(null)
+  setIsCleanupPanelOpen(false)
+  setCleanupSuggestions([])
+  setHoveredCleanupSuggestionId(null)
 
-    setActiveScenario((currentScenario) =>
-      getNextScenario(scenarioRegions, currentScenario),
-    )
-  }
+  setActiveScenario((currentScenario) =>
+    getNextScenario(scenarioRegions, currentScenario),
+  )
+}
 
   function handleStartAddingPin() {
     setPendingPinCoordinates(null)
@@ -64,6 +87,110 @@ function AppShell() {
     setPendingPinCoordinates(null)
     setIsAddingPin(false)
   }
+    function handleRunPinCleanup() {
+    setIsAddingPin(false)
+    setPendingPinCoordinates(null)
+    setIsCleanupPanelOpen(true)
+    setHoveredCleanupSuggestionId(null)
+    setIsAnalyzingCleanup(true)
+
+
+        window.setTimeout(() => {
+        const assignedPinIds = new Set(
+            savedPinFolders
+            .filter((folder) => folder.scenarioId === activeScenario.id)
+            .flatMap((folder) => folder.pinIds),
+        )
+
+        const unassignedScenarioPins = activeScenarioPins.filter(
+            (pin) => !assignedPinIds.has(pin.id),
+        )
+
+        const nextSuggestions = createPinCleanupSuggestions({
+            scenario: activeScenario,
+            pins: unassignedScenarioPins,
+            dismissedSuggestionIds: dismissedCleanupSuggestionIds,
+        })
+
+        setCleanupSuggestions(nextSuggestions)
+        setIsAnalyzingCleanup(false)
+        }, 650)
+    }
+
+    function handleCloseCleanupPanel() {
+    setIsCleanupPanelOpen(false)
+    setIsAnalyzingCleanup(false)
+    setHoveredCleanupSuggestionId(null)
+}
+
+    function handleDismissCleanupSuggestion(suggestionId: string) {
+    setDismissedCleanupSuggestionIds((currentIds) => [
+        ...currentIds,
+        suggestionId,
+    ])
+    setCleanupSuggestions((currentSuggestions) =>
+        currentSuggestions.filter((suggestion) => suggestion.id !== suggestionId),
+    )
+    setHoveredCleanupSuggestionId(null)
+    }
+
+    function handleAcceptCleanupSuggestion(input: AcceptCleanupSuggestionInput) {
+    const suggestion = cleanupSuggestions.find(
+        (currentSuggestion) => currentSuggestion.id === input.suggestionId,
+    )
+
+    if (!suggestion) {
+        return
+    }
+
+    const recommendedFolderPinIds = input.pinAssignments
+        .filter((assignment) => assignment.destinationFolderId === 'recommended')
+        .map((assignment) => assignment.pinId)
+
+    const existingFolderAssignments = input.pinAssignments.filter(
+        (assignment) =>
+        assignment.destinationFolderId !== 'recommended' &&
+        assignment.destinationFolderId !== 'none',
+    )
+
+    if (recommendedFolderPinIds.length > 0) {
+        const savedFolder: SavedPinFolder = {
+        id: `${activeScenario.id}-folder-${Date.now()}`,
+        name: input.folderName.trim() || suggestion.suggestedFolderName,
+        scenarioId: activeScenario.id,
+        pinIds: recommendedFolderPinIds,
+        createdAt: new Date().toISOString(),
+        }
+
+        setSavedPinFolders((currentFolders) => [...currentFolders, savedFolder])
+    }
+
+    if (existingFolderAssignments.length > 0) {
+        setSavedPinFolders((currentFolders) =>
+        currentFolders.map((folder) => {
+            const assignedPinIds = existingFolderAssignments
+            .filter((assignment) => assignment.destinationFolderId === folder.id)
+            .map((assignment) => assignment.pinId)
+
+            if (assignedPinIds.length === 0) {
+            return folder
+            }
+
+            return {
+            ...folder,
+            pinIds: Array.from(new Set([...folder.pinIds, ...assignedPinIds])),
+            }
+        }),
+        )
+    }
+
+    setCleanupSuggestions((currentSuggestions) =>
+        currentSuggestions.filter(
+        (currentSuggestion) => currentSuggestion.id !== input.suggestionId,
+        ),
+    )
+    setHoveredCleanupSuggestionId(null)
+    }
 
   return (
     <main className="flex min-h-screen bg-stone-100 p-3 text-slate-900">
@@ -74,12 +201,24 @@ function AppShell() {
         activeScenarioPins={activeScenarioPins}
         isAddingPin={isAddingPin}
         pendingPinCoordinates={pendingPinCoordinates}
+        isCleanupPanelOpen={isCleanupPanelOpen}
+        isAnalyzingCleanup={isAnalyzingCleanup}
+        cleanupSuggestions={cleanupSuggestions}
+        hoveredCleanupSuggestionId={hoveredCleanupSuggestionId}
+        savedPinFolders={savedPinFolders.filter(
+        (folder) => folder.scenarioId === activeScenario.id,
+        )}
         onGenerateScenario={handleGenerateScenario}
         onStartAddingPin={handleStartAddingPin}
         onCancelAddingPin={handleCancelAddingPin}
         onChoosePinLocation={handleChoosePinLocation}
         onSaveUserPin={handleSaveUserPin}
-      />
+        onRunPinCleanup={handleRunPinCleanup}
+        onCloseCleanupPanel={handleCloseCleanupPanel}
+        onDismissCleanupSuggestion={handleDismissCleanupSuggestion}
+        onAcceptCleanupSuggestion={handleAcceptCleanupSuggestion}
+        onHoverCleanupSuggestion={setHoveredCleanupSuggestionId}
+        />
     </main>
   )
 }

@@ -1,18 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import type { ScenarioRegion, ScoutPin, UserPinDraft } from '../types/scout'
+import type {
+  AcceptCleanupSuggestionInput,
+  PinCleanupSuggestion,
+  SavedPinFolder,
+  ScenarioRegion,
+  ScoutPin,
+  UserPinDraft,
+} from '../types/scout'
+
+type CleanupSuggestionDraft = {
+  folderName: string
+  pinAssignments: Record<string, string | 'recommended' | 'none'>
+}
 
 type MapViewerProps = {
   activeScenario: ScenarioRegion
   activeScenarioPins: ScoutPin[]
   isAddingPin: boolean
   pendingPinCoordinates: ScoutPin['coordinates'] | null
+  isCleanupPanelOpen: boolean
+  isAnalyzingCleanup: boolean
+  cleanupSuggestions: PinCleanupSuggestion[]
+  hoveredCleanupSuggestionId: string | null
+  savedPinFolders: SavedPinFolder[]
+  onCloseCleanupPanel: () => void
   onGenerateScenario: () => void
   onStartAddingPin: () => void
   onCancelAddingPin: () => void
   onChoosePinLocation: (coordinates: ScoutPin['coordinates']) => void
   onSaveUserPin: (pinDraft: UserPinDraft) => void
+  onRunPinCleanup: () => void
+  onDismissCleanupSuggestion: (suggestionId: string) => void
+  onAcceptCleanupSuggestion: (input: AcceptCleanupSuggestionInput) => void
+  onHoverCleanupSuggestion: (suggestionId: string | null) => void
 }
 
 const pinTypeOptions: Array<{ value: UserPinDraft['type']; label: string }> = [
@@ -45,17 +67,34 @@ function MapViewer({
   activeScenarioPins,
   isAddingPin,
   pendingPinCoordinates,
+  isCleanupPanelOpen,
+  isAnalyzingCleanup,
+  cleanupSuggestions,
+  hoveredCleanupSuggestionId,
+  savedPinFolders,
   onGenerateScenario,
   onStartAddingPin,
   onCancelAddingPin,
   onChoosePinLocation,
   onSaveUserPin,
+  onRunPinCleanup,
+  onCloseCleanupPanel,
+  onDismissCleanupSuggestion,
+  onAcceptCleanupSuggestion,
+  onHoverCleanupSuggestion,
 }: MapViewerProps) {
       const [newPinDraft, setNewPinDraft] = useState<UserPinDraft>({
     name: '',
     type: 'generic-marker',
     notes: '',
   })
+  const [cleanupDrafts, setCleanupDrafts] = useState<
+  Record<string, CleanupSuggestionDraft>
+>({})
+
+const [hoveredCleanupPinId, setHoveredCleanupPinId] = useState<string | null>(
+  null,
+)
 
   const handleCancelNewPin = () => {
     setNewPinDraft({
@@ -80,6 +119,94 @@ function MapViewer({
       notes: '',
     })
   }
+
+function getPinById(pinId: string) {
+  return activeScenarioPins.find((pin) => pin.id === pinId)
+}
+
+function getCleanupDraft(suggestion: PinCleanupSuggestion) {
+  const existingDraft = cleanupDrafts[suggestion.id]
+
+  if (existingDraft) {
+    return existingDraft
+  }
+
+  return {
+    folderName: suggestion.suggestedFolderName,
+    pinAssignments: suggestion.pinIds.reduce<
+      Record<string, string | 'recommended' | 'none'>
+    >((assignments, pinId) => {
+      assignments[pinId] = 'recommended'
+      return assignments
+    }, {}),
+  }
+}
+
+function updateCleanupFolderName(suggestionId: string, folderName: string) {
+  setCleanupDrafts((currentDrafts) => ({
+    ...currentDrafts,
+    [suggestionId]: {
+      folderName,
+      pinAssignments: currentDrafts[suggestionId]?.pinAssignments ?? {},
+    },
+  }))
+}
+
+function updateCleanupPinAssignment({
+  suggestion,
+  pinId,
+  destinationFolderId,
+}: {
+  suggestion: PinCleanupSuggestion
+  pinId: string
+  destinationFolderId: string | 'recommended' | 'none'
+}) {
+  const currentDraft = getCleanupDraft(suggestion)
+
+  setCleanupDrafts((currentDrafts) => ({
+    ...currentDrafts,
+    [suggestion.id]: {
+      ...currentDraft,
+      pinAssignments: {
+        ...currentDraft.pinAssignments,
+        [pinId]: destinationFolderId,
+      },
+    },
+  }))
+}
+
+function handleAcceptCleanupSuggestion(suggestion: PinCleanupSuggestion) {
+  const draft = getCleanupDraft(suggestion)
+
+  onAcceptCleanupSuggestion({
+    suggestionId: suggestion.id,
+    folderName: draft.folderName,
+    pinAssignments: suggestion.pinIds.map((pinId) => ({
+      pinId,
+      destinationFolderId: draft.pinAssignments[pinId] ?? 'recommended',
+    })),
+  })
+
+  setCleanupDrafts((currentDrafts) => {
+    const nextDrafts = { ...currentDrafts }
+    delete nextDrafts[suggestion.id]
+    return nextDrafts
+  })
+  setHoveredCleanupPinId(null)
+}
+
+function handleDismissCleanupSuggestion(suggestionId: string) {
+  onDismissCleanupSuggestion(suggestionId)
+
+  setCleanupDrafts((currentDrafts) => {
+    const nextDrafts = { ...currentDrafts }
+    delete nextDrafts[suggestionId]
+    return nextDrafts
+  })
+    setHoveredCleanupPinId(null)
+
+}
+
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markerRefs = useRef<mapboxgl.Marker[]>([])
@@ -177,14 +304,46 @@ function MapViewer({
 
     const map = mapRef.current
 
-    markerRefs.current.forEach((marker) => marker.remove())
-    markerRefs.current = []
+      markerRefs.current.forEach((marker) => marker.remove())
+      markerRefs.current = []
 
-    activeScenarioPins.forEach((pin) => {
+const hoveredSuggestion = cleanupSuggestions.find(
+  (suggestion) => suggestion.id === hoveredCleanupSuggestionId,
+)
+
+const highlightedPinIds = new Set(hoveredSuggestion?.pinIds ?? [])
+
+const pinFolderNamesById = savedPinFolders.reduce<Record<string, string[]>>(
+  (folderNamesByPinId, folder) => {
+    folder.pinIds.forEach((pinId) => {
+      folderNamesByPinId[pinId] = [
+        ...(folderNamesByPinId[pinId] ?? []),
+        folder.name,
+      ]
+    })
+
+    return folderNamesByPinId
+  },
+  {},
+)
+
+activeScenarioPins.forEach((pin) => {
+  const isHighlighted = highlightedPinIds.has(pin.id)
+  const isFocusedCleanupPin = hoveredCleanupPinId === pin.id
+  const pinFolderNames = pinFolderNamesById[pin.id] ?? []
+  const folderSummaryHtml =
+    pinFolderNames.length > 0
+      ? `<p style="margin: 0 0 6px; font-size: 11px; color: #334155;"><strong>Folder:</strong> ${pinFolderNames.join(
+          ', ',
+        )}</p>`
+      : ''
       const markerElement = document.createElement('button')
       markerElement.type = 'button'
-      markerElement.className =
-  'flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-orange-500 shadow-lg hover:bg-orange-600'
+     markerElement.className = isFocusedCleanupPin
+  ? 'flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-slate-950 shadow-2xl ring-8 ring-orange-300 animate-pulse'
+  : isHighlighted
+    ? 'flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-slate-950 shadow-xl ring-4 ring-orange-300 animate-pulse'
+    : 'flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-orange-500 shadow-lg hover:bg-orange-600'
       markerElement.setAttribute('aria-label', pin.name)
 
       const markerDot = document.createElement('span')
@@ -206,9 +365,10 @@ function MapViewer({
           <p style="margin: 0 0 6px; font-size: 12px; line-height: 1.4; color: #475569;">
             ${pin.notes}
           </p>
-          <p style="margin: 0; font-size: 11px; color: #64748b;">
+          ${folderSummaryHtml}
+            <p style="margin: 0; font-size: 11px; color: #64748b;">
             Source: ${pin.source} · Observed: ${pin.observedAt}
-          </p>
+            </p>
         </div>
       `)
 
@@ -222,7 +382,13 @@ function MapViewer({
 
       markerRefs.current.push(marker)
     })
-  }, [activeScenarioPins])
+  }, [
+  activeScenarioPins,
+  cleanupSuggestions,
+  hoveredCleanupPinId,
+  hoveredCleanupSuggestionId,
+  savedPinFolders,
+])
 
   useEffect(() => {
   if (!mapRef.current) {
@@ -423,13 +589,23 @@ return (
         Click Add Pin, then choose a location on the map.
       </p>
 
-      <button
-        type="button"
-        onClick={onStartAddingPin}
-        className="mt-4 w-full rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700"
-      >
-        Add Pin
-      </button>
+    <div className="mt-4 grid gap-2">
+  <button
+    type="button"
+    onClick={onStartAddingPin}
+    className="w-full rounded-xl bg-orange-600 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700"
+  >
+    Add Pin
+  </button>
+
+  <button
+    type="button"
+    onClick={onRunPinCleanup}
+    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-100"
+  >
+    Pin Cleanup
+  </button>
+</div>
     </>
   )}
 </div>
@@ -455,6 +631,227 @@ return (
     Generate New Scenario
   </button>
 </div>
+
+{isCleanupPanelOpen &&
+  (isAnalyzingCleanup ||
+    cleanupSuggestions.length > 0 ||
+    savedPinFolders.length > 0) && (
+  <div className="absolute right-5 top-5 max-h-[calc(100%-2.5rem)] w-96 overflow-y-auto rounded-2xl border border-white/70 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+    <div className="flex items-start justify-between gap-3">
+  <div>
+    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+      Pin Cleanup
+    </p>
+    <p className="mt-1 text-sm font-bold text-slate-900">
+      Cleanup recommendations
+    </p>
+  </div>
+
+  <button
+    type="button"
+    onClick={onCloseCleanupPanel}
+    className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-100"
+  >
+    Close
+  </button>
+</div>
+
+    {isAnalyzingCleanup ? (
+      <div className="mt-4 rounded-xl border border-orange-100 bg-orange-50 px-3 py-3">
+        <p className="text-sm font-bold text-slate-900">
+          Analyzing current scenario pins…
+        </p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          Checking proximity, timing, and pin context.
+        </p>
+      </div>
+    ) : (
+      <>
+        {cleanupSuggestions.length === 0 && savedPinFolders.length === 0 && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+            <p className="text-sm font-bold text-slate-900">
+              Not enough related pins found.
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Add more pins or switch scenarios to run cleanup again.
+            </p>
+          </div>
+        )}
+
+        {cleanupSuggestions.length > 0 && (
+  <div className="mt-4 space-y-3">
+    {cleanupSuggestions.map((suggestion) => {
+      const cleanupDraft = getCleanupDraft(suggestion)
+
+      return (
+        <div
+          key={suggestion.id}
+          onMouseEnter={() => onHoverCleanupSuggestion(suggestion.id)}
+          onMouseLeave={() => {
+            onHoverCleanupSuggestion(null)
+            setHoveredCleanupPinId(null)
+            }}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-900">
+                {suggestion.title}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-orange-600">
+                Confidence: {suggestion.confidence}%
+              </p>
+            </div>
+
+            {hoveredCleanupSuggestionId === suggestion.id && (
+              <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-orange-700">
+                Highlighting
+              </span>
+            )}
+          </div>
+
+          <label className="mt-3 block text-xs font-semibold text-slate-700">
+            Folder Name
+            <input
+              type="text"
+              value={cleanupDraft.folderName}
+              onChange={(event) =>
+                updateCleanupFolderName(suggestion.id, event.target.value)
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+            />
+          </label>
+
+          <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+              Why this grouping?
+            </p>
+
+            <ul className="mt-2 space-y-1">
+              {suggestion.explanation.map((explanationItem) => (
+                <li
+                  key={explanationItem}
+                  className="text-xs leading-5 text-slate-600"
+                >
+                  • {explanationItem}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+              Included Pins
+            </p>
+
+            {suggestion.pinIds.map((pinId) => {
+              const pin = getPinById(pinId)
+
+              if (!pin) {
+                return null
+              }
+
+              return (
+                    <div
+                        key={pin.id}
+                        onMouseEnter={() => setHoveredCleanupPinId(pin.id)}
+                        onMouseLeave={() => setHoveredCleanupPinId(null)}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 transition hover:border-orange-300 hover:bg-orange-50"
+                    >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">
+                        {pin.name}
+                      </p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                        {formatPinType(pin.type)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="mt-2 block text-[11px] font-semibold text-slate-600">
+                    Folder Assignment
+                    <select
+                      value={
+                        cleanupDraft.pinAssignments[pin.id] ?? 'recommended'
+                      }
+                      onChange={(event) =>
+                        updateCleanupPinAssignment({
+                          suggestion,
+                          pinId: pin.id,
+                          destinationFolderId: event.target.value,
+                        })
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-normal text-slate-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                    >
+                      <option value="recommended">
+                        Recommended Folder
+                      </option>
+
+                      {savedPinFolders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+
+                      <option value="none">No Folder</option>
+                    </select>
+                  </label>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => handleAcceptCleanupSuggestion(suggestion)}
+              className="flex-1 rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-800"
+            >
+              Accept Grouping
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDismissCleanupSuggestion(suggestion.id)}
+              className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )
+    })}
+  </div>
+)}
+
+        {savedPinFolders.length > 0 && (
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Saved Cleanup Groups
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {savedPinFolders.map((folder) => (
+                <div
+                  key={folder.id}
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <p className="text-sm font-bold text-slate-900">
+                    {folder.name}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {folder.pinIds.length} pins
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
+    )}
+  </div>
+)}
 
 <div className="absolute bottom-4 left-5 rounded-full border border-white/60 bg-white/75 px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
   Demo Mode · Scenarios use simulated scouting data layered over real Idaho terrain.
