@@ -43,7 +43,7 @@ export const scenarioRegions: ScenarioRegion[] = [
       "Expect timbered slopes, lake and creek systems, benches, and access points that reward careful map review.",
     primaryUseCase: "Spring bear notes and elk preseason scouting",
     camera: {
-      center: [-116.1035, 44.911],
+      center: [-115.91684, 45.1598],
       zoom: 10.2,
       pitch: 55,
       bearing: -12,
