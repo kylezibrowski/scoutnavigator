@@ -8,6 +8,7 @@ type MapViewerProps = {
   activeScenarioPins: ScoutPin[]
   isAddingPin: boolean
   pendingPinCoordinates: ScoutPin['coordinates'] | null
+  onGenerateScenario: () => void
   onStartAddingPin: () => void
   onCancelAddingPin: () => void
   onChoosePinLocation: (coordinates: ScoutPin['coordinates']) => void
@@ -44,6 +45,7 @@ function MapViewer({
   activeScenarioPins,
   isAddingPin,
   pendingPinCoordinates,
+  onGenerateScenario,
   onStartAddingPin,
   onCancelAddingPin,
   onChoosePinLocation,
@@ -430,6 +432,32 @@ return (
       </button>
     </>
   )}
+</div>
+
+<div className="absolute bottom-14 left-5 w-80 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+    Scenario
+  </p>
+
+  <p className="mt-1 text-sm font-bold text-slate-900">
+    {activeScenario.name}
+  </p>
+
+  <p className="mt-1 text-xs leading-5 text-slate-600">
+    {activeScenario.subtitle}
+  </p>
+
+  <button
+    type="button"
+    onClick={onGenerateScenario}
+    className="mt-3 rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800"
+  >
+    Generate New Scenario
+  </button>
+</div>
+
+<div className="absolute bottom-4 left-5 rounded-full border border-white/60 bg-white/75 px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
+  Demo Mode · Scenarios use simulated scouting data layered over real Idaho terrain.
 </div>
     </section>
   )

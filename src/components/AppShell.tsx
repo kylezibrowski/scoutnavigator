@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import ControlPanel from './ControlPanel'
 import LeftRail from './LeftRail'
 import MapViewer from './MapViewer'
 import { scenarioRegions } from '../data/scenarioRegions'
@@ -70,7 +69,7 @@ function AppShell() {
     <main className="flex min-h-screen bg-stone-100 p-3 text-slate-900">
       <LeftRail />
 
-      <ControlPanel
+      <MapViewer
         activeScenario={activeScenario}
         activeScenarioPins={activeScenarioPins}
         isAddingPin={isAddingPin}
@@ -78,18 +77,9 @@ function AppShell() {
         onGenerateScenario={handleGenerateScenario}
         onStartAddingPin={handleStartAddingPin}
         onCancelAddingPin={handleCancelAddingPin}
-      />
-
-      <MapViewer
-        activeScenario={activeScenario}
-        activeScenarioPins={activeScenarioPins}
-        isAddingPin={isAddingPin}
-        pendingPinCoordinates={pendingPinCoordinates}
-        onStartAddingPin={handleStartAddingPin}
-        onCancelAddingPin={handleCancelAddingPin}
         onChoosePinLocation={handleChoosePinLocation}
         onSaveUserPin={handleSaveUserPin}
-        />
+      />
     </main>
   )
 }
