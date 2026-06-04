@@ -8,6 +8,7 @@ const savedFolders = [
 ]
 
 
+
 function formatPinType(type: ScoutPin['type']) {
   return type
     .split('-')
