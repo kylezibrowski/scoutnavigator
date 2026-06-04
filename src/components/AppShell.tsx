@@ -34,6 +34,8 @@ function AppShell() {
   const [dismissedCleanupSuggestionIds, setDismissedCleanupSuggestionIds] =
     useState<string[]>([])
   const [savedPinFolders, setSavedPinFolders] = useState<SavedPinFolder[]>([])
+  const [isFoldersPanelOpen, setIsFoldersPanelOpen] = useState(false)
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
 
   const simulatedScenarioPins = createScenarioPins(activeScenario)
   const activeScenarioPins = [
@@ -45,6 +47,8 @@ function AppShell() {
   setIsAddingPin(false)
   setPendingPinCoordinates(null)
   setIsCleanupPanelOpen(false)
+  setIsFoldersPanelOpen(false)
+  setSelectedFolderId(null)
   setCleanupSuggestions([])
   setHoveredCleanupSuggestionId(null)
 
@@ -91,6 +95,8 @@ function AppShell() {
     setIsAddingPin(false)
     setPendingPinCoordinates(null)
     setIsCleanupPanelOpen(true)
+    setIsFoldersPanelOpen(false)
+    setSelectedFolderId(null)
     setHoveredCleanupSuggestionId(null)
     setIsAnalyzingCleanup(true)
 
@@ -121,6 +127,53 @@ function AppShell() {
     setIsCleanupPanelOpen(false)
     setIsAnalyzingCleanup(false)
     setHoveredCleanupSuggestionId(null)
+}
+
+function handleOpenFoldersPanel() {
+  setIsAddingPin(false)
+  setPendingPinCoordinates(null)
+  setIsCleanupPanelOpen(false)
+  setIsAnalyzingCleanup(false)
+  setHoveredCleanupSuggestionId(null)
+  setIsFoldersPanelOpen(true)
+  setSelectedFolderId(null)
+}
+
+function handleCloseFoldersPanel() {
+  setIsFoldersPanelOpen(false)
+  setSelectedFolderId(null)
+}
+
+function handleSelectFolder(folderId: string | null) {
+  setSelectedFolderId(folderId)
+}
+
+function handleRemovePinFromFolder(folderId: string, pinId: string) {
+  setSavedPinFolders((currentFolders) =>
+    currentFolders.map((folder) =>
+      folder.id === folderId
+        ? {
+            ...folder,
+            pinIds: folder.pinIds.filter(
+              (currentPinId) => currentPinId !== pinId,
+            ),
+          }
+        : folder,
+    ),
+  )
+}
+
+function handleAddPinToFolder(folderId: string, pinId: string) {
+  setSavedPinFolders((currentFolders) =>
+    currentFolders.map((folder) =>
+      folder.id === folderId
+        ? {
+            ...folder,
+            pinIds: Array.from(new Set([...folder.pinIds, pinId])),
+          }
+        : folder,
+    ),
+  )
 }
 
     function handleDismissCleanupSuggestion(suggestionId: string) {
@@ -194,7 +247,10 @@ function AppShell() {
 
   return (
     <main className="flex min-h-screen bg-stone-100 p-3 text-slate-900">
-      <LeftRail />
+      <LeftRail
+        activeSection={isFoldersPanelOpen ? 'folders' : 'map'}
+        onOpenFoldersPanel={handleOpenFoldersPanel}
+        />
 
       <MapViewer
         activeScenario={activeScenario}
@@ -205,6 +261,8 @@ function AppShell() {
         isAnalyzingCleanup={isAnalyzingCleanup}
         cleanupSuggestions={cleanupSuggestions}
         hoveredCleanupSuggestionId={hoveredCleanupSuggestionId}
+        isFoldersPanelOpen={isFoldersPanelOpen}
+        selectedFolderId={selectedFolderId}
         savedPinFolders={savedPinFolders.filter(
         (folder) => folder.scenarioId === activeScenario.id,
         )}
@@ -215,6 +273,10 @@ function AppShell() {
         onSaveUserPin={handleSaveUserPin}
         onRunPinCleanup={handleRunPinCleanup}
         onCloseCleanupPanel={handleCloseCleanupPanel}
+        onCloseFoldersPanel={handleCloseFoldersPanel}
+        onSelectFolder={handleSelectFolder}
+        onRemovePinFromFolder={handleRemovePinFromFolder}
+        onAddPinToFolder={handleAddPinToFolder}
         onDismissCleanupSuggestion={handleDismissCleanupSuggestion}
         onAcceptCleanupSuggestion={handleAcceptCleanupSuggestion}
         onHoverCleanupSuggestion={setHoveredCleanupSuggestionId}

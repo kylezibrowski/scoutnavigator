@@ -22,10 +22,16 @@ type MapViewerProps = {
   pendingPinCoordinates: ScoutPin['coordinates'] | null
   isCleanupPanelOpen: boolean
   isAnalyzingCleanup: boolean
+  isFoldersPanelOpen: boolean
+  selectedFolderId: string | null
   cleanupSuggestions: PinCleanupSuggestion[]
   hoveredCleanupSuggestionId: string | null
   savedPinFolders: SavedPinFolder[]
   onCloseCleanupPanel: () => void
+  onCloseFoldersPanel: () => void
+  onSelectFolder: (folderId: string | null) => void
+  onRemovePinFromFolder: (folderId: string, pinId: string) => void
+  onAddPinToFolder: (folderId: string, pinId: string) => void
   onGenerateScenario: () => void
   onStartAddingPin: () => void
   onCancelAddingPin: () => void
@@ -69,6 +75,8 @@ function MapViewer({
   pendingPinCoordinates,
   isCleanupPanelOpen,
   isAnalyzingCleanup,
+  isFoldersPanelOpen,
+  selectedFolderId,
   cleanupSuggestions,
   hoveredCleanupSuggestionId,
   savedPinFolders,
@@ -79,6 +87,10 @@ function MapViewer({
   onSaveUserPin,
   onRunPinCleanup,
   onCloseCleanupPanel,
+  onCloseFoldersPanel,
+  onSelectFolder,
+  onRemovePinFromFolder,
+  onAddPinToFolder,
   onDismissCleanupSuggestion,
   onAcceptCleanupSuggestion,
   onHoverCleanupSuggestion,
@@ -96,6 +108,9 @@ const [hoveredCleanupPinId, setHoveredCleanupPinId] = useState<string | null>(
   null,
 )
 
+const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
+  null,
+)
   const handleCancelNewPin = () => {
     setNewPinDraft({
       name: '',
@@ -195,6 +210,7 @@ function handleAcceptCleanupSuggestion(suggestion: PinCleanupSuggestion) {
   setHoveredCleanupPinId(null)
 }
 
+
 function handleDismissCleanupSuggestion(suggestionId: string) {
   onDismissCleanupSuggestion(suggestionId)
 
@@ -207,6 +223,14 @@ function handleDismissCleanupSuggestion(suggestionId: string) {
 
 }
 
+    const selectedFolder =
+    savedPinFolders.find((folder) => folder.id === selectedFolderId) ?? null
+
+    const selectedFolderPins = selectedFolder
+    ? selectedFolder.pinIds
+        .map((pinId) => getPinById(pinId))
+        .filter((pin): pin is ScoutPin => Boolean(pin))
+    : []
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markerRefs = useRef<mapboxgl.Marker[]>([])
@@ -311,6 +335,7 @@ const hoveredSuggestion = cleanupSuggestions.find(
   (suggestion) => suggestion.id === hoveredCleanupSuggestionId,
 )
 
+
 const highlightedPinIds = new Set(hoveredSuggestion?.pinIds ?? [])
 
 const pinFolderNamesById = savedPinFolders.reduce<Record<string, string[]>>(
@@ -331,12 +356,7 @@ activeScenarioPins.forEach((pin) => {
   const isHighlighted = highlightedPinIds.has(pin.id)
   const isFocusedCleanupPin = hoveredCleanupPinId === pin.id
   const pinFolderNames = pinFolderNamesById[pin.id] ?? []
-  const folderSummaryHtml =
-    pinFolderNames.length > 0
-      ? `<p style="margin: 0 0 6px; font-size: 11px; color: #334155;"><strong>Folder:</strong> ${pinFolderNames.join(
-          ', ',
-        )}</p>`
-      : ''
+  const isPinAssignedToFolder = pinFolderNames.length > 0
       const markerElement = document.createElement('button')
       markerElement.type = 'button'
      markerElement.className = isFocusedCleanupPin
@@ -350,27 +370,109 @@ activeScenarioPins.forEach((pin) => {
       markerDot.className = 'h-2.5 w-2.5 rounded-full bg-white'
       markerElement.appendChild(markerDot)
 
-      const popup = new mapboxgl.Popup({
-        offset: 24,
-        closeButton: true,
-        closeOnClick: true,
-      }).setHTML(`
-        <div style="min-width: 180px;">
-          <p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; color: #f97316; text-transform: uppercase; letter-spacing: 0.08em;">
-            ${formatPinType(pin.type)}
-          </p>
-          <p style="margin: 0 0 6px; font-size: 14px; font-weight: 700; color: #0f172a;">
-            ${pin.name}
-          </p>
-          <p style="margin: 0 0 6px; font-size: 12px; line-height: 1.4; color: #475569;">
-            ${pin.notes}
-          </p>
-          ${folderSummaryHtml}
-            <p style="margin: 0; font-size: 11px; color: #64748b;">
-            Source: ${pin.source} · Observed: ${pin.observedAt}
-            </p>
-        </div>
-      `)
+      const popupContent = document.createElement('div')
+popupContent.style.minWidth = '190px'
+
+const typeLabel = document.createElement('p')
+typeLabel.style.margin = '0 0 4px'
+typeLabel.style.fontSize = '12px'
+typeLabel.style.fontWeight = '700'
+typeLabel.style.color = '#f97316'
+typeLabel.style.textTransform = 'uppercase'
+typeLabel.style.letterSpacing = '0.08em'
+typeLabel.textContent = formatPinType(pin.type)
+popupContent.appendChild(typeLabel)
+
+const pinName = document.createElement('p')
+pinName.style.margin = '0 0 6px'
+pinName.style.fontSize = '14px'
+pinName.style.fontWeight = '700'
+pinName.style.color = '#0f172a'
+pinName.textContent = pin.name
+popupContent.appendChild(pinName)
+
+const pinNotes = document.createElement('p')
+pinNotes.style.margin = '0 0 6px'
+pinNotes.style.fontSize = '12px'
+pinNotes.style.lineHeight = '1.4'
+pinNotes.style.color = '#475569'
+pinNotes.textContent = pin.notes
+popupContent.appendChild(pinNotes)
+
+const folderSummary = document.createElement('p')
+folderSummary.style.margin = '0 0 6px'
+folderSummary.style.fontSize = '11px'
+folderSummary.style.color = '#334155'
+
+const folderLabel = document.createElement('strong')
+folderLabel.textContent = 'Folder: '
+folderSummary.appendChild(folderLabel)
+folderSummary.appendChild(
+  document.createTextNode(
+    isPinAssignedToFolder ? pinFolderNames.join(', ') : 'No folder',
+  ),
+)
+popupContent.appendChild(folderSummary)
+
+if (!isPinAssignedToFolder && savedPinFolders.length > 0) {
+  const addFolderWrapper = document.createElement('label')
+  addFolderWrapper.style.display = 'block'
+  addFolderWrapper.style.margin = '0 0 8px'
+  addFolderWrapper.style.fontSize = '11px'
+  addFolderWrapper.style.fontWeight = '700'
+  addFolderWrapper.style.color = '#334155'
+  addFolderWrapper.textContent = 'Add to folder'
+
+  const folderSelect = document.createElement('select')
+  folderSelect.style.display = 'block'
+  folderSelect.style.width = '100%'
+  folderSelect.style.marginTop = '4px'
+  folderSelect.style.border = '1px solid #cbd5e1'
+  folderSelect.style.borderRadius = '8px'
+  folderSelect.style.padding = '6px 8px'
+  folderSelect.style.fontSize = '12px'
+  folderSelect.style.color = '#0f172a'
+  folderSelect.style.background = '#ffffff'
+
+  const placeholderOption = document.createElement('option')
+  placeholderOption.value = ''
+  placeholderOption.textContent = 'Choose folder...'
+  folderSelect.appendChild(placeholderOption)
+
+  savedPinFolders.forEach((folder) => {
+    const folderOption = document.createElement('option')
+    folderOption.value = folder.id
+    folderOption.textContent = folder.name
+    folderSelect.appendChild(folderOption)
+  })
+
+  folderSelect.addEventListener('change', (event) => {
+    const target = event.target as HTMLSelectElement
+
+    if (!target.value) {
+      return
+    }
+
+    onAddPinToFolder(target.value, pin.id)
+    popup.remove()
+  })
+
+  addFolderWrapper.appendChild(folderSelect)
+  popupContent.appendChild(addFolderWrapper)
+}
+
+const pinMeta = document.createElement('p')
+pinMeta.style.margin = '0'
+pinMeta.style.fontSize = '11px'
+pinMeta.style.color = '#64748b'
+pinMeta.textContent = `Source: ${pin.source} · Observed: ${pin.observedAt}`
+popupContent.appendChild(pinMeta)
+
+const popup = new mapboxgl.Popup({
+  offset: 24,
+  closeButton: true,
+  closeOnClick: true,
+}).setDOMContent(popupContent)
 
       const marker = new mapboxgl.Marker({
         element: markerElement,
@@ -388,6 +490,7 @@ activeScenarioPins.forEach((pin) => {
   hoveredCleanupPinId,
   hoveredCleanupSuggestionId,
   savedPinFolders,
+  onAddPinToFolder,
 ])
 
   useEffect(() => {
@@ -849,6 +952,188 @@ return (
           </div>
         )}
       </>
+    )}
+  </div>
+)}
+
+{isFoldersPanelOpen && (
+  <div className="absolute right-5 top-5 max-h-[calc(100%-2.5rem)] w-96 overflow-y-auto rounded-2xl border border-white/70 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+          Folders
+        </p>
+        <p className="mt-1 text-sm font-bold text-slate-900">
+          {selectedFolder ? selectedFolder.name : 'Saved folders'}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={onCloseFoldersPanel}
+        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-100"
+      >
+        Close
+      </button>
+    </div>
+
+    {selectedFolder ? (
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={() => {
+            setEditingFolderPinId(null)
+            onSelectFolder(null)
+          }}
+          className="text-xs font-bold text-orange-700 hover:text-orange-800"
+        >
+          ← Back to folders
+        </button>
+
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Folder contents
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Review accepted cleanup pins. Removing a pin makes it eligible for Pin Cleanup again.
+          </p>
+        </div>
+
+        {selectedFolderPins.length === 0 ? (
+          <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-4">
+            <p className="text-sm font-bold text-slate-900">
+              No pins in this folder.
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              The folder stays visible, but removed pins can be analyzed again.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {selectedFolderPins.map((pin) => {
+              const isEditing = editingFolderPinId === pin.id
+
+              return (
+                <div
+                  key={pin.id}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">
+                        {pin.name}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {formatPinType(pin.type)}
+                      </p>
+                    </div>
+
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingFolderPinId(isEditing ? null : pin.id)
+                        }
+                        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-slate-100"
+                      >
+                        {isEditing ? 'Done' : 'Edit'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingFolderPinId(null)
+                          onRemovePinFromFolder(selectedFolder.id, pin.id)
+                        }}
+                        className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700 transition hover:bg-red-100"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {isEditing && (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                      <p className="text-xs font-bold text-slate-900">
+                        Pin details
+                      </p>
+                      <dl className="mt-2 space-y-1 text-xs leading-5 text-slate-600">
+                        <div>
+                          <dt className="inline font-bold text-slate-700">
+                            Type:{' '}
+                          </dt>
+                          <dd className="inline">{formatPinType(pin.type)}</dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-bold text-slate-700">
+                            Observed:{' '}
+                          </dt>
+                          <dd className="inline">{pin.observedAt}</dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-bold text-slate-700">
+                            Source:{' '}
+                          </dt>
+                          <dd className="inline">{pin.source}</dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-bold text-slate-700">
+                            Notes:{' '}
+                          </dt>
+                          <dd className="inline">
+                            {pin.notes || 'No notes provided.'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-bold text-slate-700">
+                            Coordinates:{' '}
+                          </dt>
+                          <dd className="inline">
+                            {pin.coordinates[1].toFixed(5)},{' '}
+                            {pin.coordinates[0].toFixed(5)}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    ) : savedPinFolders.length === 0 ? (
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <p className="text-sm font-bold text-slate-900">
+          No saved folders yet.
+        </p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          Run Pin Cleanup and accept a recommendation to create your first folder.
+        </p>
+      </div>
+    ) : (
+      <div className="mt-4 space-y-2">
+        {savedPinFolders.map((folder) => (
+          <button
+            key={folder.id}
+            type="button"
+            onClick={() => {
+              setEditingFolderPinId(null)
+              onSelectFolder(folder.id)
+            }}
+            className={`w-full rounded-xl border px-3 py-3 text-left shadow-sm transition ${
+              selectedFolderId === folder.id
+                ? 'border-orange-300 bg-orange-50'
+                : 'border-slate-200 bg-white hover:border-orange-200 hover:bg-orange-50'
+            }`}
+          >
+            <p className="text-sm font-bold text-slate-900">{folder.name}</p>
+            <p className="mt-1 text-xs text-slate-600">
+              {folder.pinIds.length} pins
+            </p>
+          </button>
+        ))}
+      </div>
     )}
   </div>
 )}
