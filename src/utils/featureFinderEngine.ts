@@ -4,6 +4,7 @@ import type {
   ScenarioRegion,
   ScoutPin,
   ScoutPinType,
+  TerrainSample,
 } from '../types/scout'
 
 type FeatureFinderTemplate = {
@@ -378,6 +379,89 @@ function createCoordinates(
   return [centerLng + lngOffset, centerLat + latOffset]
 }
 
+function getSortedTerrainSamples(terrainSamples: TerrainSample[]) {
+  return [...terrainSamples].sort(
+    (firstSample, secondSample) =>
+      secondSample.elevationMeters - firstSample.elevationMeters,
+  )
+}
+
+function getHighTerrainCandidate(
+  terrainSamples: TerrainSample[],
+  index: number,
+): TerrainSample | null {
+  const sortedSamples = getSortedTerrainSamples(terrainSamples)
+
+  return sortedSamples[index] ?? null
+}
+
+function getMidElevationTerrainCandidate(
+  terrainSamples: TerrainSample[],
+  index: number,
+): TerrainSample | null {
+  const sortedSamples = getSortedTerrainSamples(terrainSamples)
+
+  if (sortedSamples.length === 0) {
+    return null
+  }
+
+  const middleIndex = Math.floor(sortedSamples.length / 2)
+  const candidateIndex = Math.min(
+    sortedSamples.length - 1,
+    middleIndex + index - 1,
+  )
+
+  return sortedSamples[candidateIndex] ?? null
+}
+
+function getBenchTerrainCandidate(
+  terrainSamples: TerrainSample[],
+  index: number,
+): TerrainSample | null {
+  const sortedSamples = getSortedTerrainSamples(terrainSamples)
+
+  if (sortedSamples.length === 0) {
+    return null
+  }
+
+  const upperBandStartIndex = Math.floor(sortedSamples.length * 0.2)
+  const upperBandEndIndex = Math.floor(sortedSamples.length * 0.55)
+  const benchCandidates = sortedSamples.slice(
+    upperBandStartIndex,
+    upperBandEndIndex,
+  )
+
+  return benchCandidates[index] ?? benchCandidates[0] ?? null
+}
+
+function getTerrainCandidateForFeature({
+  featureType,
+  terrainSamples,
+  index,
+}: {
+  featureType: FeatureFinderType
+  terrainSamples: TerrainSample[]
+  index: number
+}): TerrainSample | null {
+  if (terrainSamples.length === 0) {
+    return null
+  }
+
+  if (featureType === 'glassing-point') {
+    return getHighTerrainCandidate(terrainSamples, index)
+  }
+
+  if (featureType === 'bedding-bench') {
+    return getBenchTerrainCandidate(terrainSamples, index)
+  }
+
+  if (featureType === 'saddle') {
+    return getMidElevationTerrainCandidate(terrainSamples, index)
+  }
+
+  return null
+}
+
 export function getFeatureFinderLabel(featureType: FeatureFinderType) {
   return featureLabels[featureType]
 }
@@ -395,31 +479,48 @@ export function createFeatureFinderSuggestions({
   scenario,
   pins,
   featureType,
+  terrainSamples = [],
 }: {
   scenario: ScenarioRegion
   pins: ScoutPin[]
   featureType: FeatureFinderType
+  terrainSamples?: TerrainSample[]
 }): FeatureFinderSuggestion[] {
-  const templates = templatesByFeature[featureType]
+      const templates = templatesByFeature[featureType]
 
-  return templates.slice(0, 3).map((template, index) => ({
-    id: createStableFeatureId({
+  return templates.slice(0, 3).map((template, index) => {
+    const terrainCandidate = getTerrainCandidateForFeature({
+      featureType,
+      terrainSamples,
+      index,
+    })
+
+    return {
+      id: createStableFeatureId({
+        scenarioId: scenario.id,
+        featureType,
+        index,
+      }),
       scenarioId: scenario.id,
-      featureType,
-      index,
-    }),
-    scenarioId: scenario.id,
-    type: featureType,
-    title: template.title,
-    coordinates: createCoordinates(scenario, template.coordinateOffset),
-    explanation: template.explanation,
-    suggestedAction: template.suggestedAction,
-    suitability: getSuitability({
-      scenario,
-      pins,
-      featureType,
-      template,
-      index,
-    }),
-  }))
+      type: featureType,
+      title: template.title,
+      coordinates:
+        terrainCandidate?.coordinates ??
+        createCoordinates(scenario, template.coordinateOffset),
+      explanation: terrainCandidate
+        ? [
+            `Terrain-sampled candidate at approximately ${terrainCandidate.elevationFeet.toLocaleString()} ft.`,
+            ...template.explanation,
+          ]
+        : template.explanation,
+      suggestedAction: template.suggestedAction,
+      suitability: getSuitability({
+        scenario,
+        pins,
+        featureType,
+        template,
+        index,
+      }),
+    }
+  })
 }

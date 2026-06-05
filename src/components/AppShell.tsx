@@ -16,6 +16,7 @@ import type {
   SavedPinFolder,
   ScenarioRegion,
   ScoutPin,
+  TerrainSample,
   UserPinDraft,
 } from '../types/scout'
 
@@ -190,7 +191,10 @@ function handleCloseFeatureFinderPanel() {
   setHoveredFeatureFinderSuggestionId(null)
 }
 
-function handleRunFeatureFinder(featureType: FeatureFinderType) {
+function handleRunFeatureFinder(
+  featureType: FeatureFinderType,
+  terrainSamples: TerrainSample[],
+) {
   setSelectedFeatureFinderType(featureType)
   setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
@@ -201,6 +205,7 @@ function handleRunFeatureFinder(featureType: FeatureFinderType) {
       scenario: activeScenario,
       pins: activeScenarioPins,
       featureType,
+      terrainSamples,
     })
 
     setFeatureFinderSuggestions(nextSuggestions)

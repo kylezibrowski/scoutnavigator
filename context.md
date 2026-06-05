@@ -1306,3 +1306,628 @@ Working style:
 - Commit and push only after working checkpoints.
 - Ask for file contents/screenshots when needed instead of guessing.
 ```
+# ScoutNavigator Context — Phase 6.1 Terrain-Aware Feature Finder Continuation
+
+## Project
+
+**ScoutNavigator**
+
+Project path:
+
+```text
+/Users/kylezibrowski/Projects/scoutnavigator
+```
+
+Live demo:
+
+```text
+https://scoutnavigator.vercel.app/
+```
+
+Stack:
+
+```text
+React + Vite + TypeScript + Mapbox GL JS + Tailwind + Turf.js
+```
+
+---
+
+## Working Style
+
+Continue slowly in small slices.
+
+User preferences:
+
+- Give exact files and code block targets.
+- Use terminal checks often.
+- Run `npm run build` after meaningful changes.
+- Ask for actual file contents/screenshots instead of guessing.
+- Commit/push only after working checkpoints.
+- Preserve current working map/demo behavior.
+- Keep all intelligence honest as simulated, estimated, or terrain-sampled.
+- Do not build Scenario Analysis Summary.
+- Do not build Ask Remi yet.
+
+---
+
+## Current Completed Baseline
+
+Completed and committed/pushed before Phase 6:
+
+- Phase 5 Pin Cleanup MVP.
+- Phase 5.1 Folder Review + Manual Assignment.
+- Phase 5.2 Vercel deployment and demo packaging.
+- McCall scenario center fix.
+- README and context.md demo packaging.
+
+Current app already works:
+
+- Generate Scenario.
+- Add Pin.
+- Pin Cleanup.
+- Folders.
+- Folder detail.
+- Remove pin from folder.
+- Add unassigned pin back to folder from popup.
+- No localStorage yet.
+
+---
+
+## Phase 6 Feature Finder MVP — Completed, Tested, Committed, Pushed
+
+Commit message:
+
+```text
+Add Feature Finder MVP
+```
+
+Completed behavior:
+
+- Feature Finder button appears in the upper-left Map Tools card.
+- Feature Finder opens a right-side floating panel.
+- Opening Feature Finder closes Pin Cleanup and Folders.
+- User selects a feature type.
+- Analysis state appears.
+- Suggestions render with title, suitability, explanation, suggested action, and Save as Pin.
+- Temporary suggestion markers render on the map.
+- Hovering a suggestion highlights the marker.
+- Hovering a marker highlights suggestion state.
+- Marker popup works.
+- Save as Pin converts suggestion into a normal map pin.
+- Saved Feature Finder pins participate in future Pin Cleanup.
+- Saved Feature Finder pins use `source: 'feature-finder'`.
+
+Feature Finder categories:
+
+```text
+Water
+Food
+Bedding Bench
+Saddle
+Glassing Point
+Access
+Wallow Potential
+```
+
+Important product decisions:
+
+- `Cover` was intentionally not added.
+- `Saddle` was added as a first-class pin type.
+- Saving a Feature Finder suggestion is the user confirmation step.
+- Ignored/rejected Feature Finder suggestions do not persist yet.
+- Feature Finder should feed Ask Remi later, but Ask Remi should not be built now.
+
+Types added/updated in `src/types/scout.ts`:
+
+```ts
+export type ScoutPinSource = 'simulated' | 'user' | 'feature-finder'
+```
+
+`ScoutPinType` includes:
+
+```ts
+| 'saddle'
+```
+
+Feature Finder types:
+
+```ts
+export type FeatureFinderType =
+  | 'water'
+  | 'food'
+  | 'bedding-bench'
+  | 'saddle'
+  | 'glassing-point'
+  | 'access'
+  | 'wallow-potential'
+
+export type FeatureFinderSuggestion = {
+  id: string
+  scenarioId: string
+  type: FeatureFinderType
+  title: string
+  coordinates: [number, number]
+  explanation: string[]
+  suggestedAction: string
+  suitability: number
+}
+```
+
+New file:
+
+```text
+src/utils/featureFinderEngine.ts
+```
+
+Saved Feature Finder mapping:
+
+```text
+Water             → water
+Food              → food
+Bedding Bench     → bedding
+Saddle            → saddle
+Glassing Point    → glassing-point
+Access            → access-point
+Wallow Potential  → wallow
+```
+
+---
+
+## Phase 6.1 Terrain-Aware Feature Finder — In Progress
+
+The user asked whether Feature Finder can leverage contour/elevation data instead of fixed offsets.
+
+Decision:
+
+- Move toward Level 2 terrain-sampled Feature Finder.
+- Use Mapbox `queryTerrainElevation`.
+- Keep language honest: “terrain-sampled candidate,” not “detected” or “confirmed.”
+
+Mapbox terrain source was already active in `MapViewer.tsx`:
+
+```ts
+map.addSource('mapbox-dem', {
+  type: 'raster-dem',
+  url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+  tileSize: 512,
+  maxzoom: 14,
+})
+
+map.setTerrain({
+  source: 'mapbox-dem',
+  exaggeration: 1.4,
+})
+```
+
+Diagnostics confirmed:
+
+- `queryTerrainElevation` works.
+- Elevation values return in meters.
+- Conversion to feet works.
+- Console logs showed real elevation values like 5,613 ft, 12,359 ft, etc.
+- Terrain sample grid diagnostic worked.
+- Initial 5x5 / 25 samples worked.
+- Sampling was increased to 9x9 / 81 samples.
+- Console showed `sampleCount: 81`.
+
+---
+
+## TerrainSample Type Added
+
+In `src/types/scout.ts`:
+
+```ts
+export type TerrainSample = {
+  id: string
+  coordinates: [number, number]
+  elevationMeters: number
+  elevationFeet: number
+  relativeLngIndex: number
+  relativeLatIndex: number
+}
+```
+
+---
+
+## Current Terrain Sampling Helper
+
+In `src/components/MapViewer.tsx`, near top-level helpers:
+
+```ts
+function createTerrainSamples({
+  map,
+  center,
+}: {
+  map: mapboxgl.Map
+  center: ScoutPin['coordinates']
+}): TerrainSample[] {
+  const [centerLng, centerLat] = center
+  const sampleStep = 0.005
+  const sampleRadius = 4
+  const samples: TerrainSample[] = []
+
+  for (let lngIndex = -sampleRadius; lngIndex <= sampleRadius; lngIndex += 1) {
+    for (let latIndex = -sampleRadius; latIndex <= sampleRadius; latIndex += 1) {
+      const coordinates: ScoutPin['coordinates'] = [
+        centerLng + lngIndex * sampleStep,
+        centerLat + latIndex * sampleStep,
+      ]
+
+      const elevationMeters = map.queryTerrainElevation(coordinates)
+
+      if (typeof elevationMeters !== 'number') {
+        continue
+      }
+
+      samples.push({
+        id: `terrain-${lngIndex}-${latIndex}`,
+        coordinates,
+        elevationMeters,
+        elevationFeet: Math.round(elevationMeters * 3.28084),
+        relativeLngIndex: lngIndex,
+        relativeLatIndex: latIndex,
+      })
+    }
+  }
+
+  return samples
+}
+```
+
+This is currently center-based and should be replaced by selected-area, density-based sampling.
+
+---
+
+## Terrain Samples Flow Through Feature Finder
+
+In `MapViewerProps`:
+
+```ts
+onRunFeatureFinder: (
+  featureType: FeatureFinderType,
+  terrainSamples: TerrainSample[],
+) => void
+```
+
+In `MapViewer`:
+
+```ts
+const handleRunFeatureFinder = (featureType: FeatureFinderType) => {
+  const terrainSamples = mapRef.current
+    ? createTerrainSamples({
+        map: mapRef.current,
+        center: activeScenario.camera.center,
+      })
+    : []
+
+  onRunFeatureFinder(featureType, terrainSamples)
+}
+```
+
+In `AppShell.tsx`, `handleRunFeatureFinder` accepts terrain samples and passes them to `createFeatureFinderSuggestions`.
+
+In `featureFinderEngine.ts`, `createFeatureFinderSuggestions` accepts:
+
+```ts
+terrainSamples?: TerrainSample[]
+```
+
+---
+
+## Slice 6M Completed — First Terrain-Aware Coordinates
+
+Feature Finder now uses terrain samples for:
+
+```text
+Glassing Point
+Bedding Bench
+Saddle
+```
+
+Current behavior:
+
+- Glassing Point uses high terrain samples.
+- Bedding Bench uses upper/mid terrain samples.
+- Saddle uses mid-elevation terrain samples.
+- Explanations include: `Terrain-sampled candidate at approximately X ft.`
+- Water / Food / Access / Wallow Potential still use fallback coordinates.
+- Build passed.
+- User confirmed UI works.
+
+---
+
+## Critical Product Pivot
+
+Do not keep optimizing scenario-center 81-sample Feature Finder as the final UX.
+
+New preferred product direction:
+
+```text
+Click Feature Finder
+→ map switches from angled 3D to top-down 2D
+→ user click-drags a rectangle analysis area
+→ user multi-selects feature categories
+→ Feature Finder samples terrain inside that selected rectangle
+→ system shows processing message
+→ grouped results appear by feature type
+→ suggestion markers appear only inside selected area
+→ user can Save as Pin
+```
+
+### Top-down map behavior
+
+When Feature Finder opens, map should shift to bird’s-eye view:
+
+```ts
+map.flyTo({
+  pitch: 0,
+  bearing: 0,
+})
+```
+
+For MVP, closing Feature Finder can leave the map as-is unless user later requests restoring the previous camera.
+
+### Rectangle selection
+
+Use click-and-drag rectangle selection, not two-click rectangle.
+
+Technical approach:
+
+- When selection starts, temporarily disable map panning:
+
+```ts
+map.dragPan.disable()
+```
+
+- Listen for `mousedown`, `mousemove`, `mouseup`.
+- On `mousedown`, store start lng/lat.
+- On `mousemove`, update rectangle.
+- On `mouseup`, finalize bounds and re-enable panning:
+
+```ts
+map.dragPan.enable()
+```
+
+Draw rectangle with Mapbox GeoJSON source/layers:
+
+```text
+feature-finder-selection-fill
+feature-finder-selection-outline
+```
+
+### Multi-select features
+
+Feature categories should be multi-select.
+
+Example:
+
+```text
+☑ Saddles
+☑ Bedding Benches
+☑ Glassing Points
+☑ Water
+```
+
+This better supports future Ask Remi because Ask Remi will reason over relationships between features.
+
+### Density-based sampling
+
+Replace fixed 81 samples with density-based sampling.
+
+Target:
+
+```text
+sample every ~100 yards inside selected rectangle
+```
+
+Approved sample cap:
+
+```text
+Max samples: 1,000
+```
+
+If estimated samples exceed 1,000, recommended MVP behavior:
+
+```text
+Area too large — zoom in or select a smaller area.
+```
+
+or prevent run until smaller area is selected.
+
+Transparent UI language:
+
+```text
+Sampling terrain every ~100 yards.
+Max sample limit: 1,000 points.
+```
+
+### Processing message
+
+When Feature Finder runs, show “system processing” style message:
+
+```text
+Analyzing terrain…
+Sampling elevation points and ranking likely scouting features.
+```
+
+or:
+
+```text
+System processing…
+Sampling terrain inside your selected area at ~100-yard spacing.
+```
+
+This is especially important if runtime is over ~2 seconds.
+
+---
+
+## Recommended Next Chat Slices
+
+### 6N — Checkpoint current terrain-sampling work
+
+Start by running:
+
+```bash
+cd /Users/kylezibrowski/Projects/scoutnavigator
+git status
+git diff --stat
+npm run build
+```
+
+Feature Finder MVP was committed/pushed, but Phase 6.1 terrain-sampling changes after that may still be uncommitted.
+
+Recommended commit current terrain-sampling checkpoint before major area-selection refactor:
+
+```text
+Add terrain sampling to Feature Finder
+```
+
+Only commit after build and UI pass.
+
+### 6O — Feature Finder top-down mode
+
+When Feature Finder opens, make map fly to pitch 0 and bearing 0.
+
+### 6P — Bounds type and rectangle selection
+
+Add shared bounds type, likely in `src/types/scout.ts`:
+
+```ts
+export type FeatureFinderBounds = {
+  west: number
+  south: number
+  east: number
+  north: number
+}
+```
+
+Implement click-and-drag rectangle selection in `MapViewer.tsx`.
+
+### 6Q — Density-based terrain sampling inside selected bounds
+
+Replace center-based helper with something like:
+
+```ts
+function createTerrainSamplesForBounds({
+  map,
+  bounds,
+  sampleSpacingYards,
+  maxSamples,
+}: {
+  map: mapboxgl.Map
+  bounds: FeatureFinderBounds
+  sampleSpacingYards: number
+  maxSamples: number
+}): TerrainSample[]
+```
+
+Use:
+
+```text
+sampleSpacingYards = 100
+maxSamples = 1000
+```
+
+Approx conversions:
+
+```text
+1 degree latitude ≈ 69 miles
+100 yards ≈ 0.0568 miles
+latStep ≈ 0.0568 / 69 ≈ 0.000823 degrees
+lngStep = latStep / cos(latitudeRadians)
+```
+
+Estimate sample count before querying.
+
+### 6R — Multi-select categories
+
+Current state is single-select:
+
+```ts
+selectedFeatureFinderType: FeatureFinderType | null
+```
+
+Likely change to:
+
+```ts
+selectedFeatureFinderTypes: FeatureFinderType[]
+```
+
+Add toggling and a Run Feature Finder button.
+
+### 6S — Grouped results
+
+Suggestion output can stay flat initially, but panel should group by `suggestion.type`.
+
+### 6T — Smarter terrain scoring
+
+After area selection + density sampling are working, improve scoring:
+
+- Glassing Point: high terrain + surrounding drop/relief.
+- Bedding Bench: upper/mid elevation + flatter local area + nearby relief.
+- Saddle: pass-like shape using opposite-side rise/drop.
+- Water/Wallow: low/flat/drainage-like candidate, but keep “candidate” language.
+- Food/Access: remain more simulated unless additional layers are added.
+
+---
+
+## Important Cautions
+
+- Do not silently claim “detected saddle” or “detected water.”
+- Use “candidate,” “terrain-sampled,” “estimated,” “planning marker.”
+- Water/wallow/food/access are less reliable without hydrology, vegetation, roads/trails, or landownership layers.
+- Saddles/benches/glassing are better suited to elevation-derived MVP.
+- Keep deterministic fallback for when terrain sampling fails.
+- Avoid transform-based marker scaling because prior Mapbox marker scaling caused jitter.
+- Mapbox popups with interactive controls should use `setDOMContent` and direct DOM event listeners, not React handlers inside raw `setHTML`.
+
+---
+
+## New Chat Prompt
+
+```text
+Continue ScoutNavigator from the uploaded context.md file.
+
+Project path:
+/Users/kylezibrowski/Projects/scoutnavigator
+
+We are continuing Phase 6.1: Terrain-Aware Feature Finder.
+
+Important current status:
+- Phase 6 Feature Finder MVP was implemented, tested, committed, and pushed with commit message “Add Feature Finder MVP.”
+- Feature Finder opens from Map Tools, renders a right-side panel, creates suggestions, displays temporary suggestion markers, hover highlights them, and Save as Pin converts suggestions into normal pins with source 'feature-finder'.
+- Saddle was added as a first-class ScoutPinType.
+- Feature Finder categories are: Water, Food, Bedding Bench, Saddle, Glassing Point, Access, Wallow Potential.
+- Cover was intentionally not added.
+- Mapbox DEM terrain is active in MapViewer.
+- queryTerrainElevation works and returns real elevation values.
+- TerrainSample type was added.
+- MapViewer currently creates terrain samples around the scenario center.
+- Sampling was increased to 9x9 / 81 points.
+- Terrain samples now flow MapViewer → AppShell → featureFinderEngine.
+- Glassing Point, Bedding Bench, and Saddle are currently terrain-informed from sampled points, with fallback offsets still available.
+- Build and UI tests passed.
+- Current Phase 6.1 terrain-sampling changes after the Feature Finder MVP commit may still be uncommitted; begin by checking git status/build.
+
+Critical product pivot:
+Do not continue optimizing fixed scenario-center sampling as the final UX.
+The next Feature Finder direction is area-based analysis:
+1. Clicking Feature Finder should switch the map to top-down/bird’s-eye view.
+2. User should click-and-drag to draw a rectangle analysis area.
+3. Feature categories should be multi-select.
+4. Feature Finder should sample terrain inside the selected rectangle at a density of about every 100 yards.
+5. Max sample cap should be 1,000 points.
+6. During run, show a “system processing” / terrain analysis message.
+7. Results should be grouped by selected feature type.
+8. Suggestions should remain honest: terrain-sampled candidates, not field-verified or legally validated.
+9. Saved suggestions should become normal pins and later feed Pin Cleanup / Ask Remi.
+
+Working style:
+- Walk me through slowly.
+- Use small slices.
+- Explain exact files and line/block targets based on my actual files.
+- Use terminal checks often.
+- Run npm run build after meaningful changes.
+- Commit and push only after working checkpoints.
+- Ask for file contents/screenshots when needed instead of guessing.
+```

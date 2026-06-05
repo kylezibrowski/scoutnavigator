@@ -5,6 +5,7 @@ import type {
   AcceptCleanupSuggestionInput,
   FeatureFinderSuggestion,
   FeatureFinderType,
+  TerrainSample,
   PinCleanupSuggestion,
   SavedPinFolder,
   ScenarioRegion,
@@ -50,7 +51,10 @@ type MapViewerProps = {
   onHoverCleanupSuggestion: (suggestionId: string | null) => void
   onOpenFeatureFinderPanel: () => void
   onCloseFeatureFinderPanel: () => void
-  onRunFeatureFinder: (featureType: FeatureFinderType) => void
+  onRunFeatureFinder: (
+  featureType: FeatureFinderType,
+  terrainSamples: TerrainSample[],
+) => void
   onHoverFeatureFinderSuggestion: (suggestionId: string | null) => void
   onSaveFeatureFinderSuggestion: (suggestionId: string) => void
 }
@@ -89,6 +93,45 @@ function formatPinType(type: ScoutPin['type']) {
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function createTerrainSamples({
+  map,
+  center,
+}: {
+  map: mapboxgl.Map
+  center: ScoutPin['coordinates']
+}): TerrainSample[] {
+  const [centerLng, centerLat] = center
+  const sampleStep = 0.005
+  const sampleRadius = 4
+  const samples: TerrainSample[] = []
+
+  for (let lngIndex = -sampleRadius; lngIndex <= sampleRadius; lngIndex += 1) {
+    for (let latIndex = -sampleRadius; latIndex <= sampleRadius; latIndex += 1) {
+      const coordinates: ScoutPin['coordinates'] = [
+        centerLng + lngIndex * sampleStep,
+        centerLat + latIndex * sampleStep,
+      ]
+
+      const elevationMeters = map.queryTerrainElevation(coordinates)
+
+      if (typeof elevationMeters !== 'number') {
+        continue
+      }
+
+      samples.push({
+        id: `terrain-${lngIndex}-${latIndex}`,
+        coordinates,
+        elevationMeters,
+        elevationFeet: Math.round(elevationMeters * 3.28084),
+        relativeLngIndex: lngIndex,
+        relativeLatIndex: latIndex,
+      })
+    }
+  }
+
+  return samples
 }
 
 function MapViewer({
@@ -167,6 +210,17 @@ const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
       notes: '',
     })
   }
+
+  const handleRunFeatureFinder = (featureType: FeatureFinderType) => {
+  const terrainSamples = mapRef.current
+    ? createTerrainSamples({
+        map: mapRef.current,
+        center: activeScenario.camera.center,
+      })
+    : []
+
+  onRunFeatureFinder(featureType, terrainSamples)
+}
 
 function getPinById(pinId: string) {
   return activeScenarioPins.find((pin) => pin.id === pinId)
@@ -357,6 +411,43 @@ function handleDismissCleanupSuggestion(suggestionId: string) {
       essential: true,
     })
   }, [activeScenario])
+
+useEffect(() => {
+  if (!mapRef.current) {
+    return
+  }
+
+  const map = mapRef.current
+
+  const logTerrainDiagnostics = () => {
+    const samples = createTerrainSamples({
+  map,
+  center: activeScenario.camera.center,
+})
+
+    const sortedByElevation = [...samples].sort(
+      (firstSample, secondSample) =>
+        secondSample.elevationMeters - firstSample.elevationMeters,
+    )
+
+    const highestSamples = sortedByElevation.slice(0, 3)
+    const lowestSamples = sortedByElevation.slice(-3).reverse()
+
+    console.log('Feature Finder terrain diagnostic:', {
+      scenario: activeScenario.name,
+      sampleCount: samples.length,
+      center: activeScenario.camera.center,
+      highestSamples,
+      lowestSamples,
+    })
+  }
+
+  const timeoutId = window.setTimeout(logTerrainDiagnostics, 1400)
+
+  return () => {
+    window.clearTimeout(timeoutId)
+  }
+}, [activeScenario])
 
   useEffect(() => {
     if (!mapRef.current) {
@@ -1137,7 +1228,7 @@ return (
           <button
             key={option.value}
             type="button"
-            onClick={() => onRunFeatureFinder(option.value)}
+            onClick={() => handleRunFeatureFinder(option.value)}
             className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition ${
               selectedFeatureFinderType === option.value
                 ? 'border-orange-300 bg-orange-50 text-orange-800'

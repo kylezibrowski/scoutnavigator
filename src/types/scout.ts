@@ -72,6 +72,15 @@ export type FeatureFinderSuggestion = {
   suitability: number
 }
 
+export type TerrainSample = {
+  id: string
+  coordinates: [number, number]
+  elevationMeters: number
+  elevationFeet: number
+  relativeLngIndex: number
+  relativeLatIndex: number
+}
+
 export type PinCleanupSuggestion = {
   id: string
   scenarioId: string
