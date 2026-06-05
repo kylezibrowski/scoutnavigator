@@ -26,13 +26,14 @@ export type ScoutPinType =
   | 'truck'
   | 'food'
   | 'bedding'
+  | 'saddle'
   | 'blood'
   | 'shot'
   | 'deer'
   | 'elk'
   | 'generic-marker'
 
-export type ScoutPinSource = 'simulated' | 'user'
+export type ScoutPinSource = 'simulated' | 'user' | 'feature-finder'
 
 export type ScoutPin = {
   id: string
@@ -49,6 +50,26 @@ export type UserPinDraft = {
   name: string
   type: ScoutPinType
   notes: string
+}
+
+export type FeatureFinderType =
+  | 'water'
+  | 'food'
+  | 'bedding-bench'
+  | 'saddle'
+  | 'glassing-point'
+  | 'access'
+  | 'wallow-potential'
+
+export type FeatureFinderSuggestion = {
+  id: string
+  scenarioId: string
+  type: FeatureFinderType
+  title: string
+  coordinates: [number, number]
+  explanation: string[]
+  suggestedAction: string
+  suitability: number
 }
 
 export type PinCleanupSuggestion = {

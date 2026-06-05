@@ -4,8 +4,14 @@ import MapViewer from './MapViewer'
 import { scenarioRegions } from '../data/scenarioRegions'
 import { createScenarioPins, getNextScenario } from '../utils/scenarioEngine'
 import { createPinCleanupSuggestions } from '../utils/pinCleanupEngine'
+import {
+  createFeatureFinderSuggestions,
+  getScoutPinTypeForFeature,
+} from '../utils/featureFinderEngine'
 import type {
   AcceptCleanupSuggestionInput,
+  FeatureFinderSuggestion,
+  FeatureFinderType,
   PinCleanupSuggestion,
   SavedPinFolder,
   ScenarioRegion,
@@ -37,6 +43,18 @@ function AppShell() {
   const [isFoldersPanelOpen, setIsFoldersPanelOpen] = useState(false)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
 
+  const [isFeatureFinderPanelOpen, setIsFeatureFinderPanelOpen] = useState(false)
+  const [isAnalyzingFeatures, setIsAnalyzingFeatures] = useState(false)
+  const [selectedFeatureFinderType, setSelectedFeatureFinderType] =
+  useState<FeatureFinderType | null>(null)
+  const [featureFinderSuggestions, setFeatureFinderSuggestions] = useState<
+  FeatureFinderSuggestion[]
+  >([])
+const [
+  hoveredFeatureFinderSuggestionId,
+  setHoveredFeatureFinderSuggestionId,
+] = useState<string | null>(null)
+
   const simulatedScenarioPins = createScenarioPins(activeScenario)
   const activeScenarioPins = [
     ...simulatedScenarioPins,
@@ -48,6 +66,11 @@ function AppShell() {
   setPendingPinCoordinates(null)
   setIsCleanupPanelOpen(false)
   setIsFoldersPanelOpen(false)
+  setIsFeatureFinderPanelOpen(false)
+  setIsAnalyzingFeatures(false)
+  setSelectedFeatureFinderType(null)
+  setFeatureFinderSuggestions([])
+  setHoveredFeatureFinderSuggestionId(null)
   setSelectedFolderId(null)
   setCleanupSuggestions([])
   setHoveredCleanupSuggestionId(null)
@@ -97,6 +120,9 @@ function AppShell() {
     setIsCleanupPanelOpen(true)
     setIsFoldersPanelOpen(false)
     setSelectedFolderId(null)
+    setIsFeatureFinderPanelOpen(false)
+    setIsAnalyzingFeatures(false)
+    setHoveredFeatureFinderSuggestionId(null)
     setHoveredCleanupSuggestionId(null)
     setIsAnalyzingCleanup(true)
 
@@ -135,6 +161,9 @@ function handleOpenFoldersPanel() {
   setIsCleanupPanelOpen(false)
   setIsAnalyzingCleanup(false)
   setHoveredCleanupSuggestionId(null)
+  setIsFeatureFinderPanelOpen(false)
+  setIsAnalyzingFeatures(false)
+  setHoveredFeatureFinderSuggestionId(null)
   setIsFoldersPanelOpen(true)
   setSelectedFolderId(null)
 }
@@ -142,6 +171,75 @@ function handleOpenFoldersPanel() {
 function handleCloseFoldersPanel() {
   setIsFoldersPanelOpen(false)
   setSelectedFolderId(null)
+}
+
+function handleOpenFeatureFinderPanel() {
+  setIsAddingPin(false)
+  setPendingPinCoordinates(null)
+  setIsCleanupPanelOpen(false)
+  setIsAnalyzingCleanup(false)
+  setHoveredCleanupSuggestionId(null)
+  setIsFoldersPanelOpen(false)
+  setSelectedFolderId(null)
+  setIsFeatureFinderPanelOpen(true)
+}
+
+function handleCloseFeatureFinderPanel() {
+  setIsFeatureFinderPanelOpen(false)
+  setIsAnalyzingFeatures(false)
+  setHoveredFeatureFinderSuggestionId(null)
+}
+
+function handleRunFeatureFinder(featureType: FeatureFinderType) {
+  setSelectedFeatureFinderType(featureType)
+  setFeatureFinderSuggestions([])
+  setHoveredFeatureFinderSuggestionId(null)
+  setIsAnalyzingFeatures(true)
+
+  window.setTimeout(() => {
+    const nextSuggestions = createFeatureFinderSuggestions({
+      scenario: activeScenario,
+      pins: activeScenarioPins,
+      featureType,
+    })
+
+    setFeatureFinderSuggestions(nextSuggestions)
+    setIsAnalyzingFeatures(false)
+  }, 650)
+}
+
+function handleSaveFeatureFinderSuggestion(suggestionId: string) {
+  const suggestion = featureFinderSuggestions.find(
+    (currentSuggestion) => currentSuggestion.id === suggestionId,
+  )
+
+  if (!suggestion) {
+    return
+  }
+
+  const newPin: ScoutPin = {
+    id: `${activeScenario.id}-feature-pin-${Date.now()}`,
+    scenarioId: activeScenario.id,
+    name: suggestion.title,
+    type: getScoutPinTypeForFeature(suggestion.type),
+    coordinates: suggestion.coordinates,
+    notes: [
+      'Saved from Feature Finder.',
+      `Suitability: ${suggestion.suitability}%.`,
+      ...suggestion.explanation,
+      `Suggested action: ${suggestion.suggestedAction}`,
+    ].join(' '),
+    observedAt: new Date().toISOString().slice(0, 10),
+    source: 'feature-finder',
+  }
+
+  setUserPins((currentPins) => [...currentPins, newPin])
+  setFeatureFinderSuggestions((currentSuggestions) =>
+    currentSuggestions.filter(
+      (currentSuggestion) => currentSuggestion.id !== suggestionId,
+    ),
+  )
+  setHoveredFeatureFinderSuggestionId(null)
 }
 
 function handleSelectFolder(folderId: string | null) {
@@ -263,6 +361,11 @@ function handleAddPinToFolder(folderId: string, pinId: string) {
         hoveredCleanupSuggestionId={hoveredCleanupSuggestionId}
         isFoldersPanelOpen={isFoldersPanelOpen}
         selectedFolderId={selectedFolderId}
+        isFeatureFinderPanelOpen={isFeatureFinderPanelOpen}
+        isAnalyzingFeatures={isAnalyzingFeatures}
+        selectedFeatureFinderType={selectedFeatureFinderType}
+        featureFinderSuggestions={featureFinderSuggestions}
+        hoveredFeatureFinderSuggestionId={hoveredFeatureFinderSuggestionId}
         savedPinFolders={savedPinFolders.filter(
         (folder) => folder.scenarioId === activeScenario.id,
         )}
@@ -280,6 +383,11 @@ function handleAddPinToFolder(folderId: string, pinId: string) {
         onDismissCleanupSuggestion={handleDismissCleanupSuggestion}
         onAcceptCleanupSuggestion={handleAcceptCleanupSuggestion}
         onHoverCleanupSuggestion={setHoveredCleanupSuggestionId}
+        onOpenFeatureFinderPanel={handleOpenFeatureFinderPanel}
+        onCloseFeatureFinderPanel={handleCloseFeatureFinderPanel}
+        onRunFeatureFinder={handleRunFeatureFinder}
+        onHoverFeatureFinderSuggestion={setHoveredFeatureFinderSuggestionId}
+        onSaveFeatureFinderSuggestion={handleSaveFeatureFinderSuggestion}
         />
     </main>
   )

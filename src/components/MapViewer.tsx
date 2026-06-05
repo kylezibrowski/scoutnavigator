@@ -3,6 +3,8 @@ import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import type {
   AcceptCleanupSuggestionInput,
+  FeatureFinderSuggestion,
+  FeatureFinderType,
   PinCleanupSuggestion,
   SavedPinFolder,
   ScenarioRegion,
@@ -27,6 +29,11 @@ type MapViewerProps = {
   cleanupSuggestions: PinCleanupSuggestion[]
   hoveredCleanupSuggestionId: string | null
   savedPinFolders: SavedPinFolder[]
+  isFeatureFinderPanelOpen: boolean
+  isAnalyzingFeatures: boolean
+  selectedFeatureFinderType: FeatureFinderType | null
+  featureFinderSuggestions: FeatureFinderSuggestion[]
+  hoveredFeatureFinderSuggestionId: string | null
   onCloseCleanupPanel: () => void
   onCloseFoldersPanel: () => void
   onSelectFolder: (folderId: string | null) => void
@@ -41,6 +48,11 @@ type MapViewerProps = {
   onDismissCleanupSuggestion: (suggestionId: string) => void
   onAcceptCleanupSuggestion: (input: AcceptCleanupSuggestionInput) => void
   onHoverCleanupSuggestion: (suggestionId: string | null) => void
+  onOpenFeatureFinderPanel: () => void
+  onCloseFeatureFinderPanel: () => void
+  onRunFeatureFinder: (featureType: FeatureFinderType) => void
+  onHoverFeatureFinderSuggestion: (suggestionId: string | null) => void
+  onSaveFeatureFinderSuggestion: (suggestionId: string) => void
 }
 
 const pinTypeOptions: Array<{ value: UserPinDraft['type']; label: string }> = [
@@ -54,11 +66,22 @@ const pinTypeOptions: Array<{ value: UserPinDraft['type']; label: string }> = [
   { value: 'truck', label: 'Truck' },
   { value: 'food', label: 'Food' },
   { value: 'bedding', label: 'Bedding' },
+  { value: 'saddle', label: 'Saddle' },
   { value: 'blood', label: 'Blood' },
   { value: 'shot', label: 'Shot' },
   { value: 'deer', label: 'Deer' },
   { value: 'elk', label: 'Elk' },
   { value: 'generic-marker', label: 'Generic Marker' },
+]
+
+const featureFinderOptions: Array<{ value: FeatureFinderType; label: string }> = [
+  { value: 'water', label: 'Water' },
+  { value: 'food', label: 'Food' },
+  { value: 'bedding-bench', label: 'Bedding Bench' },
+  { value: 'saddle', label: 'Saddle' },
+  { value: 'glassing-point', label: 'Glassing Point' },
+  { value: 'access', label: 'Access' },
+  { value: 'wallow-potential', label: 'Wallow Potential' },
 ]
 
 function formatPinType(type: ScoutPin['type']) {
@@ -80,6 +103,11 @@ function MapViewer({
   cleanupSuggestions,
   hoveredCleanupSuggestionId,
   savedPinFolders,
+  isFeatureFinderPanelOpen,
+  isAnalyzingFeatures,
+  selectedFeatureFinderType,
+  featureFinderSuggestions,
+  hoveredFeatureFinderSuggestionId,
   onGenerateScenario,
   onStartAddingPin,
   onCancelAddingPin,
@@ -94,6 +122,11 @@ function MapViewer({
   onDismissCleanupSuggestion,
   onAcceptCleanupSuggestion,
   onHoverCleanupSuggestion,
+  onOpenFeatureFinderPanel,
+  onCloseFeatureFinderPanel,
+  onRunFeatureFinder,
+  onHoverFeatureFinderSuggestion,
+  onSaveFeatureFinderSuggestion,
 }: MapViewerProps) {
       const [newPinDraft, setNewPinDraft] = useState<UserPinDraft>({
     name: '',
@@ -231,11 +264,12 @@ function handleDismissCleanupSuggestion(suggestionId: string) {
         .map((pinId) => getPinById(pinId))
         .filter((pin): pin is ScoutPin => Boolean(pin))
     : []
-  const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<mapboxgl.Map | null>(null)
-  const markerRefs = useRef<mapboxgl.Marker[]>([])
-  const pendingMarkerRef = useRef<mapboxgl.Marker | null>(null)
-  const [mapError, setMapError] = useState<string | null>(null)
+    const mapContainerRef = useRef<HTMLDivElement | null>(null)
+    const mapRef = useRef<mapboxgl.Map | null>(null)
+    const markerRefs = useRef<mapboxgl.Marker[]>([])
+    const featureFinderMarkerRefs = useRef<mapboxgl.Marker[]>([])
+    const pendingMarkerRef = useRef<mapboxgl.Marker | null>(null)
+    const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
     const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
@@ -292,18 +326,21 @@ function handleDismissCleanupSuggestion(suggestionId: string) {
       })
     })
 
-    return () => {
-        markerRefs.current.forEach((marker) => marker.remove())
-        markerRefs.current = []
+        return () => {
+      markerRefs.current.forEach((marker) => marker.remove())
+      markerRefs.current = []
 
-        if (pendingMarkerRef.current) {
-            pendingMarkerRef.current.remove()
-            pendingMarkerRef.current = null
-        }
+      featureFinderMarkerRefs.current.forEach((marker) => marker.remove())
+      featureFinderMarkerRefs.current = []
 
-        map.remove()
-        mapRef.current = null
-}
+      if (pendingMarkerRef.current) {
+        pendingMarkerRef.current.remove()
+        pendingMarkerRef.current = null
+      }
+
+      map.remove()
+      mapRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -491,6 +528,106 @@ const popup = new mapboxgl.Popup({
   hoveredCleanupSuggestionId,
   savedPinFolders,
   onAddPinToFolder,
+])
+
+useEffect(() => {
+  if (!mapRef.current) {
+    return
+  }
+
+  const map = mapRef.current
+
+  featureFinderMarkerRefs.current.forEach((marker) => marker.remove())
+  featureFinderMarkerRefs.current = []
+
+  if (!isFeatureFinderPanelOpen || featureFinderSuggestions.length === 0) {
+    return
+  }
+
+  featureFinderSuggestions.forEach((suggestion) => {
+    const isHighlighted = hoveredFeatureFinderSuggestionId === suggestion.id
+    const featureLabel =
+      featureFinderOptions.find((option) => option.value === suggestion.type)
+        ?.label ?? 'Feature'
+
+    const markerElement = document.createElement('button')
+    markerElement.type = 'button'
+    markerElement.className = isHighlighted
+      ? 'flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-slate-950 shadow-2xl ring-8 ring-orange-300 animate-pulse'
+      : 'flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-slate-800 shadow-xl ring-4 ring-orange-200 hover:bg-slate-950'
+    markerElement.setAttribute('aria-label', suggestion.title)
+
+    const markerDot = document.createElement('span')
+    markerDot.className = 'h-2.5 w-2.5 rounded-full bg-orange-400'
+    markerElement.appendChild(markerDot)
+
+    markerElement.addEventListener('mouseenter', () => {
+      onHoverFeatureFinderSuggestion(suggestion.id)
+    })
+
+    markerElement.addEventListener('mouseleave', () => {
+      onHoverFeatureFinderSuggestion(null)
+    })
+
+    const popupContent = document.createElement('div')
+    popupContent.style.minWidth = '210px'
+
+    const typeLabel = document.createElement('p')
+    typeLabel.style.margin = '0 0 4px'
+    typeLabel.style.fontSize = '12px'
+    typeLabel.style.fontWeight = '700'
+    typeLabel.style.color = '#f97316'
+    typeLabel.style.textTransform = 'uppercase'
+    typeLabel.style.letterSpacing = '0.08em'
+    typeLabel.textContent = featureLabel
+    popupContent.appendChild(typeLabel)
+
+    const title = document.createElement('p')
+    title.style.margin = '0 0 6px'
+    title.style.fontSize = '14px'
+    title.style.fontWeight = '700'
+    title.style.color = '#0f172a'
+    title.textContent = suggestion.title
+    popupContent.appendChild(title)
+
+    const suitability = document.createElement('p')
+    suitability.style.margin = '0 0 6px'
+    suitability.style.fontSize = '12px'
+    suitability.style.fontWeight = '700'
+    suitability.style.color = '#334155'
+    suitability.textContent = `Suitability: ${suggestion.suitability}%`
+    popupContent.appendChild(suitability)
+
+    const note = document.createElement('p')
+    note.style.margin = '0'
+    note.style.fontSize = '11px'
+    note.style.lineHeight = '1.4'
+    note.style.color = '#64748b'
+    note.textContent =
+      'Simulated Feature Finder marker. Save from the panel to convert this into a normal pin.'
+    popupContent.appendChild(note)
+
+    const popup = new mapboxgl.Popup({
+      offset: 24,
+      closeButton: true,
+      closeOnClick: true,
+    }).setDOMContent(popupContent)
+
+    const marker = new mapboxgl.Marker({
+      element: markerElement,
+      anchor: 'center',
+    })
+      .setLngLat(suggestion.coordinates)
+      .setPopup(popup)
+      .addTo(map)
+
+    featureFinderMarkerRefs.current.push(marker)
+  })
+}, [
+  featureFinderSuggestions,
+  hoveredFeatureFinderSuggestionId,
+  isFeatureFinderPanelOpen,
+  onHoverFeatureFinderSuggestion,
 ])
 
   useEffect(() => {
@@ -707,6 +844,14 @@ return (
     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-100"
   >
     Pin Cleanup
+  </button>
+
+  <button
+  type="button"
+  onClick={onOpenFeatureFinderPanel}
+  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-100"
+  >
+  Feature Finder
   </button>
 </div>
     </>
@@ -926,7 +1071,7 @@ return (
       )
     })}
   </div>
-)}
+ )}
 
         {savedPinFolders.length > 0 && (
           <div className="mt-5 border-t border-slate-200 pt-4">
@@ -952,6 +1097,139 @@ return (
           </div>
         )}
       </>
+    )}
+  </div>
+)}
+
+{isFeatureFinderPanelOpen && (
+  <div className="absolute right-5 top-5 max-h-[calc(100%-2.5rem)] w-96 overflow-y-auto rounded-2xl border border-white/70 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">
+          Feature Finder
+        </p>
+        <p className="mt-1 text-sm font-bold text-slate-900">
+          Find scouting features
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={onCloseFeatureFinderPanel}
+        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-100"
+      >
+        Close
+      </button>
+    </div>
+
+    <p className="mt-3 text-xs leading-5 text-slate-600">
+      Find simulated scouting opportunities based on the current scenario context.
+      Save a suggestion to turn it into a normal map pin.
+    </p>
+
+    <div className="mt-4">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+        What are you looking for?
+      </p>
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {featureFinderOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onRunFeatureFinder(option.value)}
+            className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition ${
+              selectedFeatureFinderType === option.value
+                ? 'border-orange-300 bg-orange-50 text-orange-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-orange-200 hover:bg-orange-50'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {isAnalyzingFeatures ? (
+      <div className="mt-4 rounded-xl border border-orange-100 bg-orange-50 px-3 py-3">
+        <p className="text-sm font-bold text-slate-900">
+          Scanning current scenario context…
+        </p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          Checking simulated terrain position, nearby pins, and access patterns.
+        </p>
+      </div>
+    ) : featureFinderSuggestions.length > 0 ? (
+      <div className="mt-4 space-y-3">
+        {featureFinderSuggestions.map((suggestion) => (
+          <div
+            key={suggestion.id}
+            onMouseEnter={() => onHoverFeatureFinderSuggestion(suggestion.id)}
+            onMouseLeave={() => onHoverFeatureFinderSuggestion(null)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-orange-300 hover:bg-orange-50"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-900">
+                  {suggestion.title}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-orange-600">
+                  Suitability: {suggestion.suitability}%
+                </p>
+              </div>
+
+              {hoveredFeatureFinderSuggestionId === suggestion.id && (
+                <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-orange-700">
+                  Highlighting
+                </span>
+              )}
+            </div>
+
+            <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Why this spot?
+              </p>
+
+              <ul className="mt-2 space-y-1">
+                {suggestion.explanation.map((explanationItem) => (
+                  <li
+                    key={explanationItem}
+                    className="text-xs leading-5 text-slate-600"
+                  >
+                    • {explanationItem}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Suggested action
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                {suggestion.suggestedAction}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onSaveFeatureFinderSuggestion(suggestion.id)}
+              className="mt-3 w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-800"
+            >
+              Save as Pin
+            </button>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <p className="text-sm font-bold text-slate-900">
+          Choose a feature type.
+        </p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          Feature Finder will generate simulated opportunity markers for the active scenario.
+        </p>
+      </div>
     )}
   </div>
 )}
