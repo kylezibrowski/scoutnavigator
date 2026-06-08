@@ -1564,13 +1564,13 @@ return (
         Area selected
       </p>
       <p className="mt-1 text-xs leading-5 text-slate-600">
-        Choose one or more hunt-specific features to search for, then hit Run.
+        Choose one hunt-specific feature to analyze, then hit Run.
       </p>
     </div>
 
     <div className="mt-4">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-        What are you looking for?
+        What do you want to analyze?
       </p>
 
       <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1701,7 +1701,7 @@ return (
           Choose a feature type.
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-600">
-          Feature Finder will generate simulated opportunity markers for the active scenario.
+          Run Feature Finder again to analyze another feature type.
         </p>
       </div>
     )}

@@ -15,6 +15,53 @@ type FeatureFinderTemplate = {
   suggestedAction: string
 }
 
+type TerrainGrid = {
+  samples: TerrainSample[]
+  samplesByCell: Map<string, TerrainSample>
+  minElevationMeters: number
+  maxElevationMeters: number
+  elevationRangeMeters: number
+  rows: number
+  columns: number
+}
+
+type TerrainAspect =
+  | 'north'
+  | 'northeast'
+  | 'east'
+  | 'southeast'
+  | 'south'
+  | 'southwest'
+  | 'west'
+  | 'northwest'
+  | 'flat'
+
+type TerrainSummary = {
+  sample: TerrainSample
+  neighbors: TerrainSample[]
+  reliefMeters: number
+  meanNeighborDeltaMeters: number
+  localHighMeters: number
+  localLowMeters: number
+  elevationPercentile: number
+  aspect: TerrainAspect
+  slopeStrength: number
+  edgeScore: number
+  distanceToEdge: number
+}
+
+type TerrainCandidate = {
+  sample: TerrainSample
+  score: number
+  distanceToEdge: number
+  explanation: string[]
+}
+
+const maxTerrainDerivedSuggestionsPerFeature = 12
+const fallbackSuggestionsPerFeature = 3
+const minimumSuggestionSpacingMeters = 365.76
+const minimumTerrainCandidateScore = 45
+
 const featureLabels: Record<FeatureFinderType, string> = {
   water: 'Water',
   food: 'Food',
@@ -348,23 +395,32 @@ function getSuitability({
   featureType,
   template,
   index,
+  terrainScore,
 }: {
   scenario: ScenarioRegion
   pins: ScoutPin[]
   featureType: FeatureFinderType
   template: FeatureFinderTemplate
   index: number
+  terrainScore?: number
 }) {
   const baseScore = 72
   const contextScore = getFeatureContextScore(featureType, pins)
   const scenarioScore = getScenarioContextScore(scenario, featureType)
   const indexPenalty = index * 3
+  const terrainScoreBonus =
+    typeof terrainScore === 'number' ? Math.round((terrainScore - 50) * 0.18) : 0
 
   return Math.max(
     64,
     Math.min(
       91,
-      baseScore + contextScore + scenarioScore + template.suitabilityOffset - indexPenalty,
+      baseScore +
+        contextScore +
+        scenarioScore +
+        template.suitabilityOffset +
+        terrainScoreBonus -
+        indexPenalty,
     ),
   )
 }
@@ -379,87 +435,825 @@ function createCoordinates(
   return [centerLng + lngOffset, centerLat + latOffset]
 }
 
-function getSortedTerrainSamples(terrainSamples: TerrainSample[]) {
-  return [...terrainSamples].sort(
-    (firstSample, secondSample) =>
-      secondSample.elevationMeters - firstSample.elevationMeters,
+function getTerrainCellKey(row: number, column: number) {
+  return `${row}:${column}`
+}
+
+function clampScore(score: number) {
+  return Math.max(0, Math.min(100, score))
+}
+
+function getApproximateDistanceMeters(
+  firstCoordinates: ScoutPin['coordinates'],
+  secondCoordinates: ScoutPin['coordinates'],
+) {
+  const [firstLongitude, firstLatitude] = firstCoordinates
+  const [secondLongitude, secondLatitude] = secondCoordinates
+  const midpointLatitude = ((firstLatitude + secondLatitude) / 2) * (Math.PI / 180)
+  const metersPerLatitudeDegree = 111_320
+  const metersPerLongitudeDegree =
+    metersPerLatitudeDegree * Math.cos(midpointLatitude)
+  const deltaLongitudeMeters =
+    (secondLongitude - firstLongitude) * metersPerLongitudeDegree
+  const deltaLatitudeMeters =
+    (secondLatitude - firstLatitude) * metersPerLatitudeDegree
+
+  return Math.hypot(deltaLongitudeMeters, deltaLatitudeMeters)
+}
+
+function buildTerrainGrid(terrainSamples: TerrainSample[]): TerrainGrid | null {
+  const samplesWithGridPosition = terrainSamples.filter(
+    (sample) =>
+      typeof sample.row === 'number' &&
+      typeof sample.column === 'number' &&
+      typeof sample.rows === 'number' &&
+      typeof sample.columns === 'number',
   )
-}
 
-function getHighTerrainCandidate(
-  terrainSamples: TerrainSample[],
-  index: number,
-): TerrainSample | null {
-  const sortedSamples = getSortedTerrainSamples(terrainSamples)
-
-  return sortedSamples[index] ?? null
-}
-
-function getMidElevationTerrainCandidate(
-  terrainSamples: TerrainSample[],
-  index: number,
-): TerrainSample | null {
-  const sortedSamples = getSortedTerrainSamples(terrainSamples)
-
-  if (sortedSamples.length === 0) {
+  if (samplesWithGridPosition.length < 9) {
     return null
   }
 
-  const middleIndex = Math.floor(sortedSamples.length / 2)
-  const candidateIndex = Math.min(
-    sortedSamples.length - 1,
-    middleIndex + index - 1,
-  )
+  const firstSample = samplesWithGridPosition[0]
+  const rows =
+    firstSample.rows ??
+    Math.max(...samplesWithGridPosition.map((sample) => sample.row ?? 0)) + 1
+  const columns =
+    firstSample.columns ??
+    Math.max(...samplesWithGridPosition.map((sample) => sample.column ?? 0)) + 1
 
-  return sortedSamples[candidateIndex] ?? null
-}
-
-function getBenchTerrainCandidate(
-  terrainSamples: TerrainSample[],
-  index: number,
-): TerrainSample | null {
-  const sortedSamples = getSortedTerrainSamples(terrainSamples)
-
-  if (sortedSamples.length === 0) {
+  if (rows < 3 || columns < 3) {
     return null
   }
 
-  const upperBandStartIndex = Math.floor(sortedSamples.length * 0.2)
-  const upperBandEndIndex = Math.floor(sortedSamples.length * 0.55)
-  const benchCandidates = sortedSamples.slice(
-    upperBandStartIndex,
-    upperBandEndIndex,
-  )
+  const samplesByCell = new Map<string, TerrainSample>()
+  let minElevationMeters = Number.POSITIVE_INFINITY
+  let maxElevationMeters = Number.NEGATIVE_INFINITY
 
-  return benchCandidates[index] ?? benchCandidates[0] ?? null
+  samplesWithGridPosition.forEach((sample) => {
+    samplesByCell.set(getTerrainCellKey(sample.row ?? 0, sample.column ?? 0), sample)
+    minElevationMeters = Math.min(minElevationMeters, sample.elevationMeters)
+    maxElevationMeters = Math.max(maxElevationMeters, sample.elevationMeters)
+  })
+
+  return {
+    samples: samplesWithGridPosition,
+    samplesByCell,
+    minElevationMeters,
+    maxElevationMeters,
+    elevationRangeMeters: Math.max(1, maxElevationMeters - minElevationMeters),
+    rows,
+    columns,
+  }
 }
 
-function getTerrainCandidateForFeature({
+function getGridSample(
+  grid: TerrainGrid,
+  row: number,
+  column: number,
+): TerrainSample | null {
+  return grid.samplesByCell.get(getTerrainCellKey(row, column)) ?? null
+}
+
+function getNeighborSamples({
+  grid,
+  sample,
+  radius = 1,
+}: {
+  grid: TerrainGrid
+  sample: TerrainSample
+  radius?: number
+}) {
+  if (typeof sample.row !== 'number' || typeof sample.column !== 'number') {
+    return []
+  }
+
+  const neighbors: TerrainSample[] = []
+
+  for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
+    for (let columnOffset = -radius; columnOffset <= radius; columnOffset += 1) {
+      if (rowOffset === 0 && columnOffset === 0) {
+        continue
+      }
+
+      const neighbor = getGridSample(
+        grid,
+        sample.row + rowOffset,
+        sample.column + columnOffset,
+      )
+
+      if (neighbor) {
+        neighbors.push(neighbor)
+      }
+    }
+  }
+
+  return neighbors
+}
+
+function getContextSamples({
+  grid,
+  sample,
+  radius,
+}: {
+  grid: TerrainGrid
+  sample: TerrainSample
+  radius: number
+}) {
+  return getNeighborSamples({ grid, sample, radius })
+}
+
+function getContextMetrics({
+  grid,
+  sample,
+  radius,
+}: {
+  grid: TerrainGrid
+  sample: TerrainSample
+  radius: number
+}) {
+  const contextSamples = getContextSamples({ grid, sample, radius })
+
+  if (contextSamples.length === 0) {
+    return null
+  }
+
+  const elevations = contextSamples.map((contextSample) => contextSample.elevationMeters)
+  const higherSamples = contextSamples.filter(
+    (contextSample) => contextSample.elevationMeters > sample.elevationMeters,
+  )
+  const lowerSamples = contextSamples.filter(
+    (contextSample) => contextSample.elevationMeters < sample.elevationMeters,
+  )
+  const averageElevation =
+    elevations.reduce((sum, elevation) => sum + elevation, 0) / elevations.length
+
+  return {
+    samples: contextSamples,
+    highestElevationMeters: Math.max(...elevations),
+    lowestElevationMeters: Math.min(...elevations),
+    averageElevationMeters: averageElevation,
+    reliefMeters: Math.max(...elevations) - Math.min(...elevations),
+    higherSampleRatio: higherSamples.length / contextSamples.length,
+    lowerSampleRatio: lowerSamples.length / contextSamples.length,
+    similarLowSampleRatio:
+      contextSamples.filter(
+        (contextSample) =>
+          contextSample.elevationMeters <= sample.elevationMeters + 8,
+      ).length / contextSamples.length,
+  }
+}
+
+function getDirectionalHighPoint({
+  grid,
+  sample,
+  rowOffset,
+  columnOffset,
+  radius = 2,
+}: {
+  grid: TerrainGrid
+  sample: TerrainSample
+  rowOffset: number
+  columnOffset: number
+  radius?: number
+}) {
+  if (typeof sample.row !== 'number' || typeof sample.column !== 'number') {
+    return null
+  }
+
+  const row = sample.row
+  const column = sample.column
+  const directionalSamples = Array.from({ length: radius }, (_, index) => index + 1)
+    .map((distance) =>
+      getGridSample(
+        grid,
+        row + rowOffset * distance,
+        column + columnOffset * distance,
+      ),
+    )
+    .filter((directionalSample): directionalSample is TerrainSample =>
+      Boolean(directionalSample),
+    )
+
+  if (directionalSamples.length === 0) {
+    return null
+  }
+
+  return Math.max(
+    ...directionalSamples.map((directionalSample) => directionalSample.elevationMeters),
+  )
+}
+
+function getDirectionalLowPoint({
+  grid,
+  sample,
+  rowOffset,
+  columnOffset,
+  radius = 2,
+}: {
+  grid: TerrainGrid
+  sample: TerrainSample
+  rowOffset: number
+  columnOffset: number
+  radius?: number
+}) {
+  if (typeof sample.row !== 'number' || typeof sample.column !== 'number') {
+    return null
+  }
+
+  const row = sample.row
+  const column = sample.column
+  const directionalSamples = Array.from({ length: radius }, (_, index) => index + 1)
+    .map((distance) =>
+      getGridSample(
+        grid,
+        row + rowOffset * distance,
+        column + columnOffset * distance,
+      ),
+    )
+    .filter((directionalSample): directionalSample is TerrainSample =>
+      Boolean(directionalSample),
+    )
+
+  if (directionalSamples.length === 0) {
+    return null
+  }
+
+  return Math.min(
+    ...directionalSamples.map((directionalSample) => directionalSample.elevationMeters),
+  )
+}
+
+function estimateSlopeAspect(grid: TerrainGrid, sample: TerrainSample): {
+  aspect: TerrainAspect
+  slopeStrength: number
+} {
+  if (typeof sample.row !== 'number' || typeof sample.column !== 'number') {
+    return { aspect: 'flat', slopeStrength: 0 }
+  }
+
+  const west = getGridSample(grid, sample.row, sample.column - 1)
+  const east = getGridSample(grid, sample.row, sample.column + 1)
+  const south = getGridSample(grid, sample.row - 1, sample.column)
+  const north = getGridSample(grid, sample.row + 1, sample.column)
+
+  const westElevation = west?.elevationMeters ?? sample.elevationMeters
+  const eastElevation = east?.elevationMeters ?? sample.elevationMeters
+  const southElevation = south?.elevationMeters ?? sample.elevationMeters
+  const northElevation = north?.elevationMeters ?? sample.elevationMeters
+  const eastGradient = eastElevation - westElevation
+  const northGradient = northElevation - southElevation
+  const downhillEast = -eastGradient
+  const downhillNorth = -northGradient
+  const slopeStrength = Math.hypot(downhillEast, downhillNorth)
+
+  if (slopeStrength < 1) {
+    return { aspect: 'flat', slopeStrength }
+  }
+
+  const angle = (Math.atan2(downhillEast, downhillNorth) * 180) / Math.PI
+  const compassAngle = (angle + 360) % 360
+  const aspectLabels: TerrainAspect[] = [
+    'north',
+    'northeast',
+    'east',
+    'southeast',
+    'south',
+    'southwest',
+    'west',
+    'northwest',
+  ]
+  const aspectIndex = Math.round(compassAngle / 45) % aspectLabels.length
+
+  return {
+    aspect: aspectLabels[aspectIndex],
+    slopeStrength,
+  }
+}
+
+function isNorthFacingAspect(aspect: TerrainAspect) {
+  return aspect === 'north' || aspect === 'northeast' || aspect === 'northwest'
+}
+
+function summarizeTerrainSample(
+  grid: TerrainGrid,
+  sample: TerrainSample,
+): TerrainSummary | null {
+  const neighbors = getNeighborSamples({ grid, sample, radius: 1 })
+
+  if (neighbors.length < 3) {
+    return null
+  }
+
+  const neighborElevations = neighbors.map((neighbor) => neighbor.elevationMeters)
+  const highestNeighbor = Math.max(...neighborElevations)
+  const lowestNeighbor = Math.min(...neighborElevations)
+  const meanNeighborElevation =
+    neighborElevations.reduce((sum, elevation) => sum + elevation, 0) /
+    neighborElevations.length
+  const meanNeighborDeltaMeters =
+    neighborElevations.reduce(
+      (sum, elevation) => sum + Math.abs(elevation - sample.elevationMeters),
+      0,
+    ) / neighborElevations.length
+  const { aspect, slopeStrength } = estimateSlopeAspect(grid, sample)
+  const row = sample.row ?? 0
+  const column = sample.column ?? 0
+  const distanceToEdge = Math.min(
+    row,
+    column,
+    grid.rows - 1 - row,
+    grid.columns - 1 - column,
+  )
+  const maxDistanceToEdge = Math.max(1, Math.min(grid.rows, grid.columns) / 2)
+
+  return {
+    sample,
+    neighbors,
+    reliefMeters: highestNeighbor - lowestNeighbor,
+    meanNeighborDeltaMeters,
+    localHighMeters: sample.elevationMeters - meanNeighborElevation,
+    localLowMeters: meanNeighborElevation - sample.elevationMeters,
+    elevationPercentile:
+      (sample.elevationMeters - grid.minElevationMeters) / grid.elevationRangeMeters,
+    aspect,
+    slopeStrength,
+    edgeScore: 1 - Math.min(1, distanceToEdge / maxDistanceToEdge),
+    distanceToEdge,
+  }
+}
+
+function getFeatureContextRadius(featureType: FeatureFinderType) {
+  if (featureType === 'glassing-point') return 4
+  if (featureType === 'saddle') return 6
+  if (featureType === 'bedding-bench') return 3
+  if (featureType === 'water' || featureType === 'wallow-potential') return 5
+
+  return 3
+}
+
+function getFeatureInteriorBuffer(featureType: FeatureFinderType) {
+  if (featureType === 'water') return 3
+  if (
+    featureType === 'saddle' ||
+    featureType === 'bedding-bench' ||
+    featureType === 'glassing-point' ||
+    featureType === 'wallow-potential'
+  ) {
+    return 2
+  }
+
+  return 0
+}
+
+function isTooCloseToGridEdge({
   featureType,
-  terrainSamples,
-  index,
+  grid,
+  summary,
 }: {
   featureType: FeatureFinderType
-  terrainSamples: TerrainSample[]
-  index: number
-}): TerrainSample | null {
-  if (terrainSamples.length === 0) {
-    return null
+  grid: TerrainGrid
+  summary: TerrainSummary
+}) {
+  const buffer = getFeatureInteriorBuffer(featureType)
+
+  if (buffer === 0) {
+    return false
   }
+
+  if (Math.min(grid.rows, grid.columns) <= buffer * 2 + 3) {
+    return false
+  }
+
+  return summary.distanceToEdge < buffer
+}
+
+function getPerimeterPenalty({
+  featureType,
+  summary,
+}: {
+  featureType: FeatureFinderType
+  summary: TerrainSummary
+}) {
+  const buffer = getFeatureInteriorBuffer(featureType)
+
+  if (buffer === 0 || summary.distanceToEdge >= buffer + 2) {
+    return 0
+  }
+
+  if (featureType === 'water') return 42
+  if (featureType === 'saddle') return 28
+  if (featureType === 'bedding-bench') return 22
+  if (featureType === 'glassing-point') return 18
+  if (featureType === 'wallow-potential') return 30
+
+  return 0
+}
+
+function getSaddleTerrainPattern(grid: TerrainGrid, sample: TerrainSample) {
+  const northHigh = getDirectionalHighPoint({
+    grid,
+    sample,
+    rowOffset: 1,
+    columnOffset: 0,
+    radius: 6,
+  })
+  const southHigh = getDirectionalHighPoint({
+    grid,
+    sample,
+    rowOffset: -1,
+    columnOffset: 0,
+    radius: 6,
+  })
+  const eastHigh = getDirectionalHighPoint({
+    grid,
+    sample,
+    rowOffset: 0,
+    columnOffset: 1,
+    radius: 6,
+  })
+  const westHigh = getDirectionalHighPoint({
+    grid,
+    sample,
+    rowOffset: 0,
+    columnOffset: -1,
+    radius: 6,
+  })
+  const northLow = getDirectionalLowPoint({
+    grid,
+    sample,
+    rowOffset: 1,
+    columnOffset: 0,
+    radius: 6,
+  })
+  const southLow = getDirectionalLowPoint({
+    grid,
+    sample,
+    rowOffset: -1,
+    columnOffset: 0,
+    radius: 6,
+  })
+  const eastLow = getDirectionalLowPoint({
+    grid,
+    sample,
+    rowOffset: 0,
+    columnOffset: 1,
+    radius: 6,
+  })
+  const westLow = getDirectionalLowPoint({
+    grid,
+    sample,
+    rowOffset: 0,
+    columnOffset: -1,
+    radius: 6,
+  })
+  const northSouthRise =
+    northHigh !== null && southHigh !== null
+      ? Math.min(northHigh, southHigh) - sample.elevationMeters
+      : 0
+  const eastWestRise =
+    eastHigh !== null && westHigh !== null
+      ? Math.min(eastHigh, westHigh) - sample.elevationMeters
+      : 0
+  const northSouthDrop =
+    northLow !== null && southLow !== null
+      ? sample.elevationMeters - Math.max(northLow, southLow)
+      : 0
+  const eastWestDrop =
+    eastLow !== null && westLow !== null
+      ? sample.elevationMeters - Math.max(eastLow, westLow)
+      : 0
+
+  return {
+    opposingRiseMeters: Math.max(0, northSouthRise, eastWestRise),
+    crossDropMeters: Math.max(
+      0,
+      Math.min(Math.max(0, northSouthRise), Math.max(0, eastWestDrop)),
+      Math.min(Math.max(0, eastWestRise), Math.max(0, northSouthDrop)),
+    ),
+  }
+}
+
+function getTerrainExplanation({
+  featureType,
+  summary,
+  score,
+}: {
+  featureType: FeatureFinderType
+  summary: TerrainSummary
+  score: number
+}) {
+  const elevationText = `${summary.sample.elevationFeet.toLocaleString()} ft`
+  const explanation = [
+    `Terrain sample ranked as a likely planning candidate based on local elevation and surrounding relief near ${elevationText}.`,
+  ]
 
   if (featureType === 'glassing-point') {
-    return getHighTerrainCandidate(terrainSamples, index)
-  }
-
-  if (featureType === 'bedding-bench') {
-    return getBenchTerrainCandidate(terrainSamples, index)
+    if (summary.aspect === 'northwest') {
+      explanation.push(
+        'Potential glassing knob/shoulder with nearby terrain relief.',
+      )
+      explanation.push(
+        'Favorable viewing aspect for a morning glassing plan.',
+      )
+    } else if (summary.aspect === 'northeast') {
+      explanation.push(
+        'Potential glassing knob/shoulder with nearby terrain relief.',
+      )
+      explanation.push(
+        'Favorable viewing aspect for an evening glassing plan.',
+      )
+    } else {
+      explanation.push(
+        'Potential glassing knob/shoulder with nearby terrain relief.',
+      )
+    }
   }
 
   if (featureType === 'saddle') {
-    return getMidElevationTerrainCandidate(terrainSamples, index)
+    explanation.push(
+      'Potential saddle-like connector identified from opposing terrain rises.',
+    )
   }
 
-  return null
+  if (featureType === 'bedding-bench') {
+    explanation.push(
+      'Potential sidehill bench based on flatter relief within surrounding slope.',
+    )
+
+    if (isNorthFacingAspect(summary.aspect)) {
+      explanation.push(
+        'North-facing slope context increases bedding potential in this planning pass.',
+      )
+    }
+  }
+
+  if (featureType === 'water') {
+    explanation.push(
+      'Potential drainage/low terrain corridor from sampled elevation pattern.',
+    )
+  }
+
+  if (featureType === 'access') {
+    explanation.push(
+      'Lower-gradient or edge-adjacent terrain may support a lower-impact approach, subject to legal access checks.',
+    )
+  }
+
+  if (featureType === 'food') {
+    explanation.push(
+      'Moderate terrain position may be useful for comparing feed, bedding, and travel context in this planning pass.',
+    )
+  }
+
+  if (featureType === 'wallow-potential') {
+    explanation.push(
+      'Low, flatter terrain may indicate wallow or moisture potential, but this is not confirmed water or sign.',
+    )
+  }
+
+  explanation.push(`Terrain-shape score for this planning pass: ${Math.round(score)}%.`)
+
+  return explanation
+}
+
+function scoreTerrainSampleForFeature({
+  featureType,
+  summary,
+  grid,
+}: {
+  featureType: FeatureFinderType
+  summary: TerrainSummary
+  grid: TerrainGrid
+}) {
+  const reliefScore = Math.min(1, summary.reliefMeters / 60)
+  const localHighScore = Math.max(0, Math.min(1, summary.localHighMeters / 45))
+  const localLowScore = Math.max(0, Math.min(1, summary.localLowMeters / 45))
+  const flatnessScore = 1 - Math.min(1, summary.meanNeighborDeltaMeters / 18)
+  const contextRadius = getFeatureContextRadius(featureType)
+  const contextMetrics = getContextMetrics({
+    grid,
+    sample: summary.sample,
+    radius: contextRadius,
+  })
+  const contextReliefScore = Math.min(1, (contextMetrics?.reliefMeters ?? 0) / 120)
+  const terrainDropsAwayScore = Math.min(
+    1,
+    Math.max(0, summary.sample.elevationMeters - (contextMetrics?.lowestElevationMeters ?? summary.sample.elevationMeters)) / 80,
+  )
+  const shoulderScore = Math.min(
+    contextMetrics?.higherSampleRatio ?? 0,
+    contextMetrics?.lowerSampleRatio ?? 0,
+  ) * 2
+  const corridorLowScore = Math.min(1, (contextMetrics?.similarLowSampleRatio ?? 0) * 2.5)
+  const elevatedScore = summary.elevationPercentile
+  const midElevationScore = 1 - Math.abs(summary.elevationPercentile - 0.55) / 0.55
+  const lowerMidElevationScore =
+    1 - Math.abs(summary.elevationPercentile - 0.35) / 0.35
+  const valleyBottomPenalty = summary.elevationPercentile < 0.12 ? 18 : 0
+  const ridgeTopPenalty = summary.elevationPercentile > 0.88 ? 24 : 0
+  const peakPenalty =
+    summary.elevationPercentile > 0.9 && (contextMetrics?.higherSampleRatio ?? 0) < 0.08
+      ? 32
+      : 0
+  const perimeterPenalty = getPerimeterPenalty({ featureType, summary })
+  const northAspectScore = isNorthFacingAspect(summary.aspect) ? 1 : 0
+  const glassingAspectScore =
+    summary.aspect === 'northwest' || summary.aspect === 'northeast'
+      ? 1
+      : isNorthFacingAspect(summary.aspect)
+        ? 0.55
+        : 0
+
+  if (featureType === 'glassing-point') {
+    const manageableSlopeScore =
+      summary.slopeStrength >= 2 && summary.slopeStrength <= 28 ? 1 : 0.35
+    const highSidehillScore = 1 - Math.abs(summary.elevationPercentile - 0.72) / 0.35
+
+    return clampScore(
+      Math.max(0, highSidehillScore) * 24 +
+        shoulderScore * 20 +
+        contextReliefScore * 18 +
+        terrainDropsAwayScore * 14 +
+        localHighScore * 8 +
+        manageableSlopeScore * 8 +
+        glassingAspectScore * 8 -
+        peakPenalty -
+        perimeterPenalty,
+    )
+  }
+
+  if (featureType === 'saddle') {
+    const saddlePattern = getSaddleTerrainPattern(grid, summary.sample)
+    const opposingRiseScore = Math.min(1, saddlePattern.opposingRiseMeters / 70)
+    const crossDropScore = Math.min(1, saddlePattern.crossDropMeters / 45)
+
+    return clampScore(
+      opposingRiseScore * 42 +
+        crossDropScore * 28 +
+        midElevationScore * 16 +
+        contextReliefScore * 10 +
+        flatnessScore * 4 -
+        valleyBottomPenalty -
+        ridgeTopPenalty -
+        perimeterPenalty,
+    )
+  }
+
+  if (featureType === 'bedding-bench') {
+    const sidehillScore = Math.min(
+      1,
+      Math.min(
+        contextMetrics?.higherSampleRatio ?? 0,
+        contextMetrics?.lowerSampleRatio ?? 0,
+      ) * 2.8,
+    )
+    const gentleSlopeScore =
+      summary.slopeStrength >= 1 && summary.slopeStrength <= 20 ? 1 : 0.35
+
+    return clampScore(
+      flatnessScore * 28 +
+        sidehillScore * 26 +
+        gentleSlopeScore * 12 +
+        northAspectScore * 16 +
+        lowerMidElevationScore * 10 +
+        contextReliefScore * 8 -
+        valleyBottomPenalty -
+        ridgeTopPenalty -
+        perimeterPenalty,
+    )
+  }
+
+  if (featureType === 'water') {
+    const directionalLowPatternScore =
+      corridorLowScore > 0.25 && localLowScore > 0.12 ? 1 : corridorLowScore
+
+    return clampScore(
+      (1 - elevatedScore) * 28 +
+        directionalLowPatternScore * 34 +
+        localLowScore * 18 +
+        flatnessScore * 10 +
+        contextReliefScore * 10 -
+        ridgeTopPenalty -
+        perimeterPenalty,
+    )
+  }
+
+  if (featureType === 'access') {
+    return clampScore(
+      flatnessScore * 36 +
+        lowerMidElevationScore * 26 +
+        summary.edgeScore * 22 +
+        (1 - Math.min(1, summary.slopeStrength / 35)) * 16 -
+        ridgeTopPenalty,
+    )
+  }
+
+  if (featureType === 'wallow-potential') {
+    return clampScore(
+      (1 - elevatedScore) * 28 +
+        corridorLowScore * 22 +
+        localLowScore * 18 +
+        flatnessScore * 18 +
+        northAspectScore * 8 +
+        contextReliefScore * 6 -
+        ridgeTopPenalty -
+        perimeterPenalty,
+    )
+  }
+
+  return clampScore(
+    lowerMidElevationScore * 30 +
+      flatnessScore * 26 +
+      reliefScore * 16 +
+      summary.edgeScore * 10 +
+      midElevationScore * 18 -
+      valleyBottomPenalty,
+  )
+}
+
+function getTerrainCandidatesForFeature({
+  featureType,
+  terrainSamples,
+}: {
+  featureType: FeatureFinderType
+  terrainSamples: TerrainSample[]
+}): TerrainCandidate[] {
+  const grid = buildTerrainGrid(terrainSamples)
+
+  if (!grid) {
+    return []
+  }
+
+  return grid.samples
+    .map((sample) => {
+      const summary = summarizeTerrainSample(grid, sample)
+
+      if (!summary) {
+        return null
+      }
+
+      if (isTooCloseToGridEdge({ featureType, grid, summary })) {
+        return null
+      }
+
+      const score = scoreTerrainSampleForFeature({
+        featureType,
+        summary,
+        grid,
+      })
+
+      return {
+        sample,
+        score,
+        distanceToEdge: summary.distanceToEdge,
+        explanation: getTerrainExplanation({
+          featureType,
+          summary,
+          score,
+        }),
+      }
+    })
+    .filter((candidate): candidate is TerrainCandidate => Boolean(candidate))
+    .sort((firstCandidate, secondCandidate) => {
+      if (secondCandidate.score !== firstCandidate.score) {
+        return secondCandidate.score - firstCandidate.score
+      }
+
+      return secondCandidate.distanceToEdge - firstCandidate.distanceToEdge
+    })
+}
+
+function getSpacedTerrainCandidates(
+  terrainCandidates: TerrainCandidate[],
+): TerrainCandidate[] {
+  const selectedCandidates: TerrainCandidate[] = []
+
+  for (const candidate of terrainCandidates) {
+    if (candidate.score < minimumTerrainCandidateScore) {
+      continue
+    }
+
+    const isTooCloseToSelectedCandidate = selectedCandidates.some(
+      (selectedCandidate) =>
+        getApproximateDistanceMeters(
+          candidate.sample.coordinates,
+          selectedCandidate.sample.coordinates,
+        ) < minimumSuggestionSpacingMeters,
+    )
+
+    if (isTooCloseToSelectedCandidate) {
+      continue
+    }
+
+    selectedCandidates.push(candidate)
+
+    if (selectedCandidates.length >= maxTerrainDerivedSuggestionsPerFeature) {
+      break
+    }
+  }
+
+  return selectedCandidates
 }
 
 export function getFeatureFinderLabel(featureType: FeatureFinderType) {
@@ -487,14 +1281,44 @@ export function createFeatureFinderSuggestions({
   terrainSamples?: TerrainSample[]
 }): FeatureFinderSuggestion[] {
       const templates = templatesByFeature[featureType]
+  const terrainCandidates = getTerrainCandidatesForFeature({
+    featureType,
+    terrainSamples,
+  })
+  const spacedTerrainCandidates = getSpacedTerrainCandidates(terrainCandidates)
 
-  return templates.slice(0, 3).map((template, index) => {
-    const terrainCandidate = getTerrainCandidateForFeature({
-      featureType,
-      terrainSamples,
-      index,
+  if (spacedTerrainCandidates.length > 0) {
+    return spacedTerrainCandidates.map((terrainCandidate, index) => {
+      const template = templates[index % templates.length]
+
+      return {
+        id: createStableFeatureId({
+          scenarioId: scenario.id,
+          featureType,
+          index,
+        }),
+        scenarioId: scenario.id,
+        type: featureType,
+        title:
+          index < templates.length
+            ? template.title
+            : `${template.title} ${Math.floor(index / templates.length) + 1}`,
+        coordinates: terrainCandidate.sample.coordinates,
+        explanation: [...terrainCandidate.explanation, ...template.explanation],
+        suggestedAction: template.suggestedAction,
+        suitability: getSuitability({
+          scenario,
+          pins,
+          featureType,
+          template,
+          index,
+          terrainScore: terrainCandidate.score,
+        }),
+      }
     })
+  }
 
+  return templates.slice(0, fallbackSuggestionsPerFeature).map((template, index) => {
     return {
       id: createStableFeatureId({
         scenarioId: scenario.id,
@@ -504,15 +1328,8 @@ export function createFeatureFinderSuggestions({
       scenarioId: scenario.id,
       type: featureType,
       title: template.title,
-      coordinates:
-        terrainCandidate?.coordinates ??
-        createCoordinates(scenario, template.coordinateOffset),
-      explanation: terrainCandidate
-        ? [
-            `Terrain-sampled candidate at approximately ${terrainCandidate.elevationFeet.toLocaleString()} ft.`,
-            ...template.explanation,
-          ]
-        : template.explanation,
+      coordinates: createCoordinates(scenario, template.coordinateOffset),
+      explanation: template.explanation,
       suggestedAction: template.suggestedAction,
       suitability: getSuitability({
         scenario,

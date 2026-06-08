@@ -217,11 +217,7 @@ function handleCloseFeatureFinderPanel() {
 }
 
 function handleToggleFeatureFinderType(featureType: FeatureFinderType) {
-  setSelectedFeatureFinderTypes((currentTypes) =>
-    currentTypes.includes(featureType)
-      ? currentTypes.filter((currentType) => currentType !== featureType)
-      : [...currentTypes, featureType],
-  )
+  setSelectedFeatureFinderTypes([featureType])
 }
 
 function handleRunFeatureFinder(
