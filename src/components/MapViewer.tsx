@@ -34,7 +34,7 @@ type MapViewerProps = {
   savedPinFolders: SavedPinFolder[]
   isFeatureFinderPanelOpen: boolean
   isAnalyzingFeatures: boolean
-  selectedFeatureFinderType: FeatureFinderType | null
+  selectedFeatureFinderTypes: FeatureFinderType[]
   featureFinderSuggestions: FeatureFinderSuggestion[]
   hoveredFeatureFinderSuggestionId: string | null
   onCloseCleanupPanel: () => void
@@ -53,12 +53,14 @@ type MapViewerProps = {
   onHoverCleanupSuggestion: (suggestionId: string | null) => void
   onOpenFeatureFinderPanel: () => void
   onCloseFeatureFinderPanel: () => void
+  onToggleFeatureFinderType: (featureType: FeatureFinderType) => void
   onRunFeatureFinder: (
-  featureType: FeatureFinderType,
+  featureTypes: FeatureFinderType[],
   terrainSamples: TerrainSample[],
 ) => void
   onHoverFeatureFinderSuggestion: (suggestionId: string | null) => void
   onSaveFeatureFinderSuggestion: (suggestionId: string) => void
+  onDismissFeatureFinderSuggestion: (suggestionId: string) => void
 }
 
 const pinTypeOptions: Array<{ value: UserPinDraft['type']; label: string }> = [
@@ -196,7 +198,7 @@ function MapViewer({
   savedPinFolders,
   isFeatureFinderPanelOpen,
   isAnalyzingFeatures,
-  selectedFeatureFinderType,
+  selectedFeatureFinderTypes,
   featureFinderSuggestions,
   hoveredFeatureFinderSuggestionId,
   onGenerateScenario,
@@ -215,9 +217,11 @@ function MapViewer({
   onHoverCleanupSuggestion,
   onOpenFeatureFinderPanel,
   onCloseFeatureFinderPanel,
+  onToggleFeatureFinderType,
   onRunFeatureFinder,
   onHoverFeatureFinderSuggestion,
   onSaveFeatureFinderSuggestion,
+  onDismissFeatureFinderSuggestion,
 }: MapViewerProps) {
       const [newPinDraft, setNewPinDraft] = useState<UserPinDraft>({
     name: '',
@@ -259,7 +263,11 @@ const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
     })
   }
 
-  const handleRunFeatureFinder = (featureType: FeatureFinderType) => {
+  const handleRunFeatureFinder = () => {
+  if (!featureFinderBounds || selectedFeatureFinderTypes.length === 0) {
+    return
+  }
+
   restoreFeatureFinderCamera()
   setHasRunFeatureFinderForSelectedArea(true)
 
@@ -270,7 +278,7 @@ const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
       })
     : []
 
-  onRunFeatureFinder(featureType, terrainSamples)
+  onRunFeatureFinder(selectedFeatureFinderTypes, terrainSamples)
 }
 
 function getPinById(pinId: string) {
@@ -1528,30 +1536,44 @@ return (
       </p>
 
       <div className="mt-2 grid grid-cols-2 gap-2">
-        {featureFinderOptions.map((option) => (
+        {featureFinderOptions.map((option) => {
+          const isSelected = selectedFeatureFinderTypes.includes(option.value)
+
+          return (
           <button
             key={option.value}
             type="button"
-            onClick={() => handleRunFeatureFinder(option.value)}
+            onClick={() => onToggleFeatureFinderType(option.value)}
+            aria-pressed={isSelected}
             className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition ${
-              selectedFeatureFinderType === option.value
+              isSelected
                 ? 'border-orange-300 bg-orange-50 text-orange-800'
                 : 'border-slate-200 bg-white text-slate-700 hover:border-orange-200 hover:bg-orange-50'
             }`}
           >
             {option.label}
           </button>
-        ))}
+          )
+        })}
       </div>
+
+      <button
+        type="button"
+        onClick={handleRunFeatureFinder}
+        disabled={!featureFinderBounds || selectedFeatureFinderTypes.length === 0}
+        className="mt-3 w-full rounded-xl bg-slate-950 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        Run Feature Finder
+      </button>
     </div>
 
     {isAnalyzingFeatures ? (
       <div className="mt-4 rounded-xl border border-orange-100 bg-orange-50 px-3 py-3">
         <p className="text-sm font-bold text-slate-900">
-          Scanning current scenario context…
+          Analyzing selected terrain…
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-600">
-          Checking simulated terrain position, nearby pins, and access patterns.
+          ScoutNavigator is ranking likely hunt-specific feature candidates.
         </p>
       </div>
     ) : hasRunFeatureFinderForSelectedArea && featureFinderSuggestions.length > 0 ? (
@@ -1606,13 +1628,23 @@ return (
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => onSaveFeatureFinderSuggestion(suggestion.id)}
-              className="mt-3 w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-800"
-            >
-              Save as Pin
-            </button>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => onSaveFeatureFinderSuggestion(suggestion.id)}
+                className="flex-1 rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white transition hover:bg-slate-800"
+              >
+                Save as Pin
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onDismissFeatureFinderSuggestion(suggestion.id)}
+                className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         ))}
       </div>

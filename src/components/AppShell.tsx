@@ -46,8 +46,9 @@ function AppShell() {
 
   const [isFeatureFinderPanelOpen, setIsFeatureFinderPanelOpen] = useState(false)
   const [isAnalyzingFeatures, setIsAnalyzingFeatures] = useState(false)
-  const [selectedFeatureFinderType, setSelectedFeatureFinderType] =
-  useState<FeatureFinderType | null>(null)
+  const [selectedFeatureFinderTypes, setSelectedFeatureFinderTypes] = useState<
+    FeatureFinderType[]
+  >([])
   const [featureFinderSuggestions, setFeatureFinderSuggestions] = useState<
   FeatureFinderSuggestion[]
   >([])
@@ -69,7 +70,7 @@ const [
   setIsFoldersPanelOpen(false)
   setIsFeatureFinderPanelOpen(false)
   setIsAnalyzingFeatures(false)
-  setSelectedFeatureFinderType(null)
+  setSelectedFeatureFinderTypes([])
   setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
   setSelectedFolderId(null)
@@ -182,7 +183,7 @@ function handleOpenFeatureFinderPanel() {
   setHoveredCleanupSuggestionId(null)
   setIsFoldersPanelOpen(false)
   setSelectedFolderId(null)
-  setSelectedFeatureFinderType(null)
+  setSelectedFeatureFinderTypes([])
   setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
   setIsFeatureFinderPanelOpen(true)
@@ -191,27 +192,36 @@ function handleOpenFeatureFinderPanel() {
 function handleCloseFeatureFinderPanel() {
   setIsFeatureFinderPanelOpen(false)
   setIsAnalyzingFeatures(false)
-  setSelectedFeatureFinderType(null)
+  setSelectedFeatureFinderTypes([])
   setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
 }
 
+function handleToggleFeatureFinderType(featureType: FeatureFinderType) {
+  setSelectedFeatureFinderTypes((currentTypes) =>
+    currentTypes.includes(featureType)
+      ? currentTypes.filter((currentType) => currentType !== featureType)
+      : [...currentTypes, featureType],
+  )
+}
+
 function handleRunFeatureFinder(
-  featureType: FeatureFinderType,
+  featureTypes: FeatureFinderType[],
   terrainSamples: TerrainSample[],
 ) {
-  setSelectedFeatureFinderType(featureType)
   setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
   setIsAnalyzingFeatures(true)
 
   window.setTimeout(() => {
-    const nextSuggestions = createFeatureFinderSuggestions({
-      scenario: activeScenario,
-      pins: activeScenarioPins,
-      featureType,
-      terrainSamples,
-    })
+    const nextSuggestions = featureTypes.flatMap((featureType) =>
+      createFeatureFinderSuggestions({
+        scenario: activeScenario,
+        pins: activeScenarioPins,
+        featureType,
+        terrainSamples,
+      }),
+    )
 
     setFeatureFinderSuggestions(nextSuggestions)
     setIsAnalyzingFeatures(false)
@@ -244,6 +254,15 @@ function handleSaveFeatureFinderSuggestion(suggestionId: string) {
   }
 
   setUserPins((currentPins) => [...currentPins, newPin])
+  setFeatureFinderSuggestions((currentSuggestions) =>
+    currentSuggestions.filter(
+      (currentSuggestion) => currentSuggestion.id !== suggestionId,
+    ),
+  )
+  setHoveredFeatureFinderSuggestionId(null)
+}
+
+function handleDismissFeatureFinderSuggestion(suggestionId: string) {
   setFeatureFinderSuggestions((currentSuggestions) =>
     currentSuggestions.filter(
       (currentSuggestion) => currentSuggestion.id !== suggestionId,
@@ -373,7 +392,7 @@ function handleAddPinToFolder(folderId: string, pinId: string) {
         selectedFolderId={selectedFolderId}
         isFeatureFinderPanelOpen={isFeatureFinderPanelOpen}
         isAnalyzingFeatures={isAnalyzingFeatures}
-        selectedFeatureFinderType={selectedFeatureFinderType}
+        selectedFeatureFinderTypes={selectedFeatureFinderTypes}
         featureFinderSuggestions={featureFinderSuggestions}
         hoveredFeatureFinderSuggestionId={hoveredFeatureFinderSuggestionId}
         savedPinFolders={savedPinFolders.filter(
@@ -395,9 +414,11 @@ function handleAddPinToFolder(folderId: string, pinId: string) {
         onHoverCleanupSuggestion={setHoveredCleanupSuggestionId}
         onOpenFeatureFinderPanel={handleOpenFeatureFinderPanel}
         onCloseFeatureFinderPanel={handleCloseFeatureFinderPanel}
+        onToggleFeatureFinderType={handleToggleFeatureFinderType}
         onRunFeatureFinder={handleRunFeatureFinder}
         onHoverFeatureFinderSuggestion={setHoveredFeatureFinderSuggestionId}
         onSaveFeatureFinderSuggestion={handleSaveFeatureFinderSuggestion}
+        onDismissFeatureFinderSuggestion={handleDismissFeatureFinderSuggestion}
         />
     </main>
   )
