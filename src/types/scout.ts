@@ -84,6 +84,10 @@ export type TerrainSample = {
   elevationFeet: number
   relativeLngIndex: number
   relativeLatIndex: number
+  row?: number
+  column?: number
+  rows?: number
+  columns?: number
 }
 
 export type PinCleanupSuggestion = {

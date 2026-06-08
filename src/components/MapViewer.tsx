@@ -96,6 +96,22 @@ const featureFinderOptions: Array<{ value: FeatureFinderType; label: string }> =
 const featureFinderAreaSourceId = 'feature-finder-area'
 const featureFinderAreaFillLayerId = 'feature-finder-area-fill'
 const featureFinderAreaLineLayerId = 'feature-finder-area-line'
+const terrainSampleSpacingMeters = 91.44
+const maxTerrainSampleCount = 100000
+
+type TerrainSampleResult =
+  | {
+      status: 'ok'
+      samples: TerrainSample[]
+      rows: number
+      columns: number
+    }
+  | {
+      status: 'too-large'
+      rows: number
+      columns: number
+      sampleCount: number
+    }
 
 function formatPinType(type: ScoutPin['type']) {
   return type
@@ -148,21 +164,49 @@ function createFeatureFinderAreaData(bounds: FeatureFinderBounds) {
 
 function createTerrainSamples({
   map,
-  center,
+  bounds,
 }: {
   map: mapboxgl.Map
-  center: ScoutPin['coordinates']
-}): TerrainSample[] {
-  const [centerLng, centerLat] = center
-  const sampleStep = 0.005
-  const sampleRadius = 4
+  bounds: FeatureFinderBounds
+}): TerrainSampleResult {
+  const [west, south] = bounds.southwest
+  const [east, north] = bounds.northeast
+  const midpointLatitude = (south + north) / 2
+  const metersPerLatitudeDegree = 111_320
+  const metersPerLongitudeDegree =
+    metersPerLatitudeDegree * Math.cos((midpointLatitude * Math.PI) / 180)
+  const widthMeters = Math.abs(east - west) * metersPerLongitudeDegree
+  const heightMeters = Math.abs(north - south) * metersPerLatitudeDegree
+  const columns = Math.max(
+    1,
+    Math.ceil(widthMeters / terrainSampleSpacingMeters) + 1,
+  )
+  const rows = Math.max(
+    1,
+    Math.ceil(heightMeters / terrainSampleSpacingMeters) + 1,
+  )
+  const sampleCount = rows * columns
+
+  if (sampleCount > maxTerrainSampleCount) {
+    return {
+      status: 'too-large',
+      rows,
+      columns,
+      sampleCount,
+    }
+  }
+
   const samples: TerrainSample[] = []
 
-  for (let lngIndex = -sampleRadius; lngIndex <= sampleRadius; lngIndex += 1) {
-    for (let latIndex = -sampleRadius; latIndex <= sampleRadius; latIndex += 1) {
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
       const coordinates: ScoutPin['coordinates'] = [
-        centerLng + lngIndex * sampleStep,
-        centerLat + latIndex * sampleStep,
+        columns === 1
+          ? (west + east) / 2
+          : west + ((east - west) * column) / (columns - 1),
+        rows === 1
+          ? (south + north) / 2
+          : south + ((north - south) * row) / (rows - 1),
       ]
 
       const elevationMeters = map.queryTerrainElevation(coordinates)
@@ -172,17 +216,26 @@ function createTerrainSamples({
       }
 
       samples.push({
-        id: `terrain-${lngIndex}-${latIndex}`,
+        id: `terrain-${row}-${column}`,
         coordinates,
         elevationMeters,
         elevationFeet: Math.round(elevationMeters * 3.28084),
-        relativeLngIndex: lngIndex,
-        relativeLatIndex: latIndex,
+        relativeLngIndex: column - Math.floor(columns / 2),
+        relativeLatIndex: row - Math.floor(rows / 2),
+        row,
+        column,
+        rows,
+        columns,
       })
     }
   }
 
-  return samples
+  return {
+    status: 'ok',
+    samples,
+    rows,
+    columns,
+  }
 }
 
 function MapViewer({
@@ -240,6 +293,9 @@ const [hoveredCleanupPinId, setHoveredCleanupPinId] = useState<string | null>(
 const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
   null,
 )
+const [featureFinderRunError, setFeatureFinderRunError] = useState<string | null>(
+  null,
+)
   const handleCancelNewPin = () => {
     setNewPinDraft({
       name: '',
@@ -270,16 +326,30 @@ const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
   }
 
   restoreFeatureFinderCamera()
-  setHasRunFeatureFinderForSelectedArea(true)
+  setFeatureFinderRunError(null)
 
-  const terrainSamples = mapRef.current
+  const terrainSampleResult = mapRef.current
     ? createTerrainSamples({
         map: mapRef.current,
-        center: activeScenario.camera.center,
+        bounds: featureFinderBounds,
       })
-    : []
+    : { status: 'ok' as const, samples: [], rows: 0, columns: 0 }
 
-  onRunFeatureFinder(selectedFeatureFinderTypes, terrainSamples, featureFinderBounds)
+  if (terrainSampleResult.status === 'too-large') {
+    setHasRunFeatureFinderForSelectedArea(false)
+    setFeatureFinderRunError(
+      'Selected area is too large to analyze in this demo. Select a smaller area and run Feature Finder again.',
+    )
+    return
+  }
+
+  setHasRunFeatureFinderForSelectedArea(true)
+
+  onRunFeatureFinder(
+    selectedFeatureFinderTypes,
+    terrainSampleResult.samples,
+    featureFinderBounds,
+  )
 }
 
 function getPinById(pinId: string) {
@@ -478,6 +548,7 @@ function handleCloseFeatureFinderPanel() {
   restoreFeatureFinderCamera()
   setIsSelectingFeatureFinderArea(false)
   setFeatureFinderBounds(null)
+  setFeatureFinderRunError(null)
   setHasRunFeatureFinderForSelectedArea(false)
   updateFeatureFinderArea(null)
   onCloseFeatureFinderPanel()
@@ -576,6 +647,7 @@ useEffect(() => {
 
     areaSelectionStartRef.current = null
     setFeatureFinderBounds(null)
+    setFeatureFinderRunError(null)
     setIsSelectingFeatureFinderArea(true)
     setHasRunFeatureFinderForSelectedArea(false)
     updateFeatureFinderArea(null)
@@ -596,6 +668,7 @@ useEffect(() => {
 
   areaSelectionStartRef.current = null
   setFeatureFinderBounds(null)
+  setFeatureFinderRunError(null)
   setIsSelectingFeatureFinderArea(false)
   setHasRunFeatureFinderForSelectedArea(false)
   updateFeatureFinderArea(null)
@@ -616,43 +689,6 @@ useEffect(() => {
       essential: true,
     })
   }, [activeScenario])
-
-useEffect(() => {
-  if (!mapRef.current) {
-    return
-  }
-
-  const map = mapRef.current
-
-  const logTerrainDiagnostics = () => {
-    const samples = createTerrainSamples({
-  map,
-  center: activeScenario.camera.center,
-})
-
-    const sortedByElevation = [...samples].sort(
-      (firstSample, secondSample) =>
-        secondSample.elevationMeters - firstSample.elevationMeters,
-    )
-
-    const highestSamples = sortedByElevation.slice(0, 3)
-    const lowestSamples = sortedByElevation.slice(-3).reverse()
-
-    console.log('Feature Finder terrain diagnostic:', {
-      scenario: activeScenario.name,
-      sampleCount: samples.length,
-      center: activeScenario.camera.center,
-      highestSamples,
-      lowestSamples,
-    })
-  }
-
-  const timeoutId = window.setTimeout(logTerrainDiagnostics, 1400)
-
-  return () => {
-    window.clearTimeout(timeoutId)
-  }
-}, [activeScenario])
 
 useEffect(() => {
   updateFeatureFinderArea(featureFinderBounds)
@@ -715,6 +751,7 @@ useEffect(() => {
 
     canvas.style.cursor = ''
     setFeatureFinderBounds(nextBounds)
+    setFeatureFinderRunError(null)
     setHasRunFeatureFinderForSelectedArea(false)
     setIsSelectingFeatureFinderArea(false)
   }
@@ -1568,13 +1605,22 @@ return (
       </button>
     </div>
 
-    {isAnalyzingFeatures ? (
+    {featureFinderRunError ? (
+      <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 px-3 py-3">
+        <p className="text-sm font-bold text-slate-900">
+          Select a smaller area
+        </p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          {featureFinderRunError}
+        </p>
+      </div>
+    ) : isAnalyzingFeatures ? (
       <div className="mt-4 rounded-xl border border-orange-100 bg-orange-50 px-3 py-3">
         <p className="text-sm font-bold text-slate-900">
           Analyzing selected terrain…
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-600">
-          ScoutNavigator is ranking likely hunt-specific feature candidates.
+          ScoutNavigator is sampling elevation, comparing terrain shape, and ranking likely hunt-specific feature candidates.
         </p>
       </div>
     ) : hasRunFeatureFinderForSelectedArea && featureFinderSuggestions.length > 0 ? (
