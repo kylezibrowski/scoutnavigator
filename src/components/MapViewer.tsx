@@ -57,6 +57,7 @@ type MapViewerProps = {
   onRunFeatureFinder: (
   featureTypes: FeatureFinderType[],
   terrainSamples: TerrainSample[],
+  bounds: FeatureFinderBounds,
 ) => void
   onHoverFeatureFinderSuggestion: (suggestionId: string | null) => void
   onSaveFeatureFinderSuggestion: (suggestionId: string) => void
@@ -278,7 +279,7 @@ const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
       })
     : []
 
-  onRunFeatureFinder(selectedFeatureFinderTypes, terrainSamples)
+  onRunFeatureFinder(selectedFeatureFinderTypes, terrainSamples, featureFinderBounds)
 }
 
 function getPinById(pinId: string) {

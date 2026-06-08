@@ -10,6 +10,7 @@ import {
 } from '../utils/featureFinderEngine'
 import type {
   AcceptCleanupSuggestionInput,
+  FeatureFinderBounds,
   FeatureFinderSuggestion,
   FeatureFinderType,
   PinCleanupSuggestion,
@@ -19,6 +20,24 @@ import type {
   TerrainSample,
   UserPinDraft,
 } from '../types/scout'
+
+function isCoordinateInsideFeatureFinderBounds(
+  coordinates: ScoutPin['coordinates'],
+  bounds: FeatureFinderBounds,
+) {
+  const [longitude, latitude] = coordinates
+  const west = Math.min(bounds.southwest[0], bounds.northeast[0])
+  const east = Math.max(bounds.southwest[0], bounds.northeast[0])
+  const south = Math.min(bounds.southwest[1], bounds.northeast[1])
+  const north = Math.max(bounds.southwest[1], bounds.northeast[1])
+
+  return (
+    longitude >= west &&
+    longitude <= east &&
+    latitude >= south &&
+    latitude <= north
+  )
+}
 
 function AppShell() {
   const [activeScenario, setActiveScenario] = useState<ScenarioRegion>(
@@ -208,20 +227,25 @@ function handleToggleFeatureFinderType(featureType: FeatureFinderType) {
 function handleRunFeatureFinder(
   featureTypes: FeatureFinderType[],
   terrainSamples: TerrainSample[],
+  bounds: FeatureFinderBounds,
 ) {
   setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
   setIsAnalyzingFeatures(true)
 
   window.setTimeout(() => {
-    const nextSuggestions = featureTypes.flatMap((featureType) =>
-      createFeatureFinderSuggestions({
-        scenario: activeScenario,
-        pins: activeScenarioPins,
-        featureType,
-        terrainSamples,
-      }),
-    )
+    const nextSuggestions = featureTypes
+      .flatMap((featureType) =>
+        createFeatureFinderSuggestions({
+          scenario: activeScenario,
+          pins: activeScenarioPins,
+          featureType,
+          terrainSamples,
+        }),
+      )
+      .filter((suggestion) =>
+        isCoordinateInsideFeatureFinderBounds(suggestion.coordinates, bounds),
+      )
 
     setFeatureFinderSuggestions(nextSuggestions)
     setIsAnalyzingFeatures(false)
