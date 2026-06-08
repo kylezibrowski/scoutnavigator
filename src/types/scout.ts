@@ -72,6 +72,11 @@ export type FeatureFinderSuggestion = {
   suitability: number
 }
 
+export type FeatureFinderBounds = {
+  southwest: [number, number]
+  northeast: [number, number]
+}
+
 export type TerrainSample = {
   id: string
   coordinates: [number, number]

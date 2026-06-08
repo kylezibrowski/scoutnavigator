@@ -3,8 +3,10 @@ import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import type {
   AcceptCleanupSuggestionInput,
+  FeatureFinderBounds,
   FeatureFinderSuggestion,
   FeatureFinderType,
+  MapCamera,
   TerrainSample,
   PinCleanupSuggestion,
   SavedPinFolder,
@@ -88,11 +90,57 @@ const featureFinderOptions: Array<{ value: FeatureFinderType; label: string }> =
   { value: 'wallow-potential', label: 'Wallow Potential' },
 ]
 
+const featureFinderAreaSourceId = 'feature-finder-area'
+const featureFinderAreaFillLayerId = 'feature-finder-area-fill'
+const featureFinderAreaLineLayerId = 'feature-finder-area-line'
+
 function formatPinType(type: ScoutPin['type']) {
   return type
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function createBoundsFromCoordinates(
+  firstCoordinates: ScoutPin['coordinates'],
+  secondCoordinates: ScoutPin['coordinates'],
+): FeatureFinderBounds {
+  const west = Math.min(firstCoordinates[0], secondCoordinates[0])
+  const east = Math.max(firstCoordinates[0], secondCoordinates[0])
+  const south = Math.min(firstCoordinates[1], secondCoordinates[1])
+  const north = Math.max(firstCoordinates[1], secondCoordinates[1])
+
+  return {
+    southwest: [west, south],
+    northeast: [east, north],
+  }
+}
+
+function createFeatureFinderAreaData(bounds: FeatureFinderBounds) {
+  const [west, south] = bounds.southwest
+  const [east, north] = bounds.northeast
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [west, south],
+              [east, south],
+              [east, north],
+              [west, north],
+              [west, south],
+            ],
+          ],
+        },
+      },
+    ],
+  } as GeoJSON.FeatureCollection
 }
 
 function createTerrainSamples({
@@ -212,6 +260,9 @@ const [editingFolderPinId, setEditingFolderPinId] = useState<string | null>(
   }
 
   const handleRunFeatureFinder = (featureType: FeatureFinderType) => {
+  restoreFeatureFinderCamera()
+  setHasRunFeatureFinderForSelectedArea(true)
+
   const terrainSamples = mapRef.current
     ? createTerrainSamples({
         map: mapRef.current,
@@ -323,7 +374,105 @@ function handleDismissCleanupSuggestion(suggestionId: string) {
     const markerRefs = useRef<mapboxgl.Marker[]>([])
     const featureFinderMarkerRefs = useRef<mapboxgl.Marker[]>([])
     const pendingMarkerRef = useRef<mapboxgl.Marker | null>(null)
+    const previousFeatureFinderCameraRef = useRef<MapCamera | null>(null)
+    const areaSelectionStartRef = useRef<ScoutPin['coordinates'] | null>(null)
+    const wasDragPanEnabledRef = useRef(false)
     const [mapError, setMapError] = useState<string | null>(null)
+    const [isSelectingFeatureFinderArea, setIsSelectingFeatureFinderArea] =
+      useState(false)
+    const [featureFinderBounds, setFeatureFinderBounds] =
+      useState<FeatureFinderBounds | null>(null)
+    const [
+      hasRunFeatureFinderForSelectedArea,
+      setHasRunFeatureFinderForSelectedArea,
+    ] = useState(false)
+
+function updateFeatureFinderArea(bounds: FeatureFinderBounds | null) {
+  const map = mapRef.current
+
+  if (!map || !map.isStyleLoaded()) {
+    return
+  }
+
+  if (!bounds) {
+    if (map.getLayer(featureFinderAreaLineLayerId)) {
+      map.removeLayer(featureFinderAreaLineLayerId)
+    }
+
+    if (map.getLayer(featureFinderAreaFillLayerId)) {
+      map.removeLayer(featureFinderAreaFillLayerId)
+    }
+
+    if (map.getSource(featureFinderAreaSourceId)) {
+      map.removeSource(featureFinderAreaSourceId)
+    }
+
+    return
+  }
+
+  const areaData = createFeatureFinderAreaData(bounds)
+  const existingSource = map.getSource(featureFinderAreaSourceId)
+
+  if (existingSource) {
+    ;(existingSource as mapboxgl.GeoJSONSource).setData(areaData)
+    return
+  }
+
+  map.addSource(featureFinderAreaSourceId, {
+    type: 'geojson',
+    data: areaData,
+  })
+
+  map.addLayer({
+    id: featureFinderAreaFillLayerId,
+    type: 'fill',
+    source: featureFinderAreaSourceId,
+    paint: {
+      'fill-color': '#f97316',
+      'fill-opacity': 0.12,
+    },
+  })
+
+  map.addLayer({
+    id: featureFinderAreaLineLayerId,
+    type: 'line',
+    source: featureFinderAreaSourceId,
+    paint: {
+      'line-color': '#f97316',
+      'line-opacity': 0.65,
+      'line-width': 2,
+    },
+  })
+}
+
+function restoreFeatureFinderCamera() {
+  const map = mapRef.current
+  const previousCamera = previousFeatureFinderCameraRef.current
+
+  if (!map || !previousCamera) {
+    return
+  }
+
+  map.flyTo({
+    center: previousCamera.center,
+    zoom: previousCamera.zoom,
+    pitch: previousCamera.pitch,
+    bearing: previousCamera.bearing,
+    duration: 900,
+    essential: true,
+  })
+
+  previousFeatureFinderCameraRef.current = null
+}
+
+function handleCloseFeatureFinderPanel() {
+  restoreFeatureFinderCamera()
+  setIsSelectingFeatureFinderArea(false)
+  setFeatureFinderBounds(null)
+  setHasRunFeatureFinderForSelectedArea(false)
+  updateFeatureFinderArea(null)
+  onCloseFeatureFinderPanel()
+}
 
   useEffect(() => {
     const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
@@ -397,6 +546,53 @@ function handleDismissCleanupSuggestion(suggestionId: string) {
     }
   }, [])
 
+useEffect(() => {
+  const map = mapRef.current
+
+  if (!map) {
+    return
+  }
+
+  if (isFeatureFinderPanelOpen) {
+    if (!previousFeatureFinderCameraRef.current) {
+      const center = map.getCenter()
+
+      previousFeatureFinderCameraRef.current = {
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing(),
+      }
+    }
+
+    areaSelectionStartRef.current = null
+    setFeatureFinderBounds(null)
+    setIsSelectingFeatureFinderArea(true)
+    setHasRunFeatureFinderForSelectedArea(false)
+    updateFeatureFinderArea(null)
+
+    const center = map.getCenter()
+
+    map.flyTo({
+      center: [center.lng, center.lat],
+      zoom: map.getZoom(),
+      pitch: 0,
+      bearing: 0,
+      duration: 900,
+      essential: true,
+    })
+
+    return
+  }
+
+  areaSelectionStartRef.current = null
+  setFeatureFinderBounds(null)
+  setIsSelectingFeatureFinderArea(false)
+  setHasRunFeatureFinderForSelectedArea(false)
+  updateFeatureFinderArea(null)
+  restoreFeatureFinderCamera()
+}, [isFeatureFinderPanelOpen])
+
   useEffect(() => {
     if (!mapRef.current) {
       return
@@ -448,6 +644,90 @@ useEffect(() => {
     window.clearTimeout(timeoutId)
   }
 }, [activeScenario])
+
+useEffect(() => {
+  updateFeatureFinderArea(featureFinderBounds)
+}, [featureFinderBounds])
+
+useEffect(() => {
+  if (!mapRef.current || !isFeatureFinderPanelOpen || !isSelectingFeatureFinderArea) {
+    return
+  }
+
+  const map = mapRef.current
+  const canvas = map.getCanvas()
+
+  canvas.style.cursor = 'crosshair'
+
+  function handleAreaMouseDown(event: mapboxgl.MapMouseEvent) {
+    const startCoordinates: ScoutPin['coordinates'] = [
+      event.lngLat.lng,
+      event.lngLat.lat,
+    ]
+
+    areaSelectionStartRef.current = startCoordinates
+    wasDragPanEnabledRef.current = map.dragPan.isEnabled()
+    map.dragPan.disable()
+    event.originalEvent.preventDefault()
+  }
+
+  function handleAreaMouseMove(event: mapboxgl.MapMouseEvent) {
+    const startCoordinates = areaSelectionStartRef.current
+
+    if (!startCoordinates) {
+      return
+    }
+
+    updateFeatureFinderArea(
+      createBoundsFromCoordinates(startCoordinates, [
+        event.lngLat.lng,
+        event.lngLat.lat,
+      ]),
+    )
+  }
+
+  function handleAreaMouseUp(event: mapboxgl.MapMouseEvent) {
+    const startCoordinates = areaSelectionStartRef.current
+
+    if (!startCoordinates) {
+      return
+    }
+
+    const nextBounds = createBoundsFromCoordinates(startCoordinates, [
+      event.lngLat.lng,
+      event.lngLat.lat,
+    ])
+
+    areaSelectionStartRef.current = null
+
+    if (wasDragPanEnabledRef.current) {
+      map.dragPan.enable()
+    }
+
+    canvas.style.cursor = ''
+    setFeatureFinderBounds(nextBounds)
+    setHasRunFeatureFinderForSelectedArea(false)
+    setIsSelectingFeatureFinderArea(false)
+  }
+
+  map.on('mousedown', handleAreaMouseDown)
+  map.on('mousemove', handleAreaMouseMove)
+  map.on('mouseup', handleAreaMouseUp)
+
+  return () => {
+    map.off('mousedown', handleAreaMouseDown)
+    map.off('mousemove', handleAreaMouseMove)
+    map.off('mouseup', handleAreaMouseUp)
+
+    areaSelectionStartRef.current = null
+
+    if (wasDragPanEnabledRef.current) {
+      map.dragPan.enable()
+    }
+
+    canvas.style.cursor = ''
+  }
+}, [isFeatureFinderPanelOpen, isSelectingFeatureFinderArea])
 
   useEffect(() => {
     if (!mapRef.current) {
@@ -631,7 +911,12 @@ useEffect(() => {
   featureFinderMarkerRefs.current.forEach((marker) => marker.remove())
   featureFinderMarkerRefs.current = []
 
-  if (!isFeatureFinderPanelOpen || featureFinderSuggestions.length === 0) {
+  if (
+    !isFeatureFinderPanelOpen ||
+    !featureFinderBounds ||
+    !hasRunFeatureFinderForSelectedArea ||
+    featureFinderSuggestions.length === 0
+  ) {
     return
   }
 
@@ -716,6 +1001,8 @@ useEffect(() => {
   })
 }, [
   featureFinderSuggestions,
+  featureFinderBounds,
+  hasRunFeatureFinderForSelectedArea,
   hoveredFeatureFinderSuggestionId,
   isFeatureFinderPanelOpen,
   onHoverFeatureFinderSuggestion,
@@ -798,6 +1085,17 @@ return (
           </div>
         </div>
       )}
+
+{isFeatureFinderPanelOpen && isSelectingFeatureFinderArea && !featureFinderBounds && (
+  <div className="pointer-events-none absolute left-1/2 top-5 w-80 -translate-x-1/2 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+    <p className="text-sm font-bold text-slate-900">
+      Select an analysis area
+    </p>
+    <p className="mt-1 text-xs leading-5 text-slate-600">
+      Click and drag on the map to draw the area you want Feature Finder to evaluate.
+    </p>
+  </div>
+)}
 
 <div className="absolute left-5 top-5 w-72 rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
   {isAddingPin ? (
@@ -1206,17 +1504,23 @@ return (
 
       <button
         type="button"
-        onClick={onCloseFeatureFinderPanel}
+        onClick={handleCloseFeatureFinderPanel}
         className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-100"
       >
         Close
       </button>
     </div>
 
-    <p className="mt-3 text-xs leading-5 text-slate-600">
-      Find simulated scouting opportunities based on the current scenario context.
-      Save a suggestion to turn it into a normal map pin.
-    </p>
+    {featureFinderBounds ? (
+      <>
+    <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50 px-3 py-3">
+      <p className="text-sm font-bold text-slate-900">
+        Area selected
+      </p>
+      <p className="mt-1 text-xs leading-5 text-slate-600">
+        Choose one or more hunt-specific features to search for, then hit Run.
+      </p>
+    </div>
 
     <div className="mt-4">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
@@ -1250,7 +1554,7 @@ return (
           Checking simulated terrain position, nearby pins, and access patterns.
         </p>
       </div>
-    ) : featureFinderSuggestions.length > 0 ? (
+    ) : hasRunFeatureFinderForSelectedArea && featureFinderSuggestions.length > 0 ? (
       <div className="mt-4 space-y-3">
         {featureFinderSuggestions.map((suggestion) => (
           <div
@@ -1319,6 +1623,17 @@ return (
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-600">
           Feature Finder will generate simulated opportunity markers for the active scenario.
+        </p>
+      </div>
+    )}
+      </>
+    ) : (
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <p className="text-sm font-bold text-slate-900">
+          Select an area on the map
+        </p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          Draw a rectangle to define where Feature Finder should look.
         </p>
       </div>
     )}

@@ -182,12 +182,17 @@ function handleOpenFeatureFinderPanel() {
   setHoveredCleanupSuggestionId(null)
   setIsFoldersPanelOpen(false)
   setSelectedFolderId(null)
+  setSelectedFeatureFinderType(null)
+  setFeatureFinderSuggestions([])
+  setHoveredFeatureFinderSuggestionId(null)
   setIsFeatureFinderPanelOpen(true)
 }
 
 function handleCloseFeatureFinderPanel() {
   setIsFeatureFinderPanelOpen(false)
   setIsAnalyzingFeatures(false)
+  setSelectedFeatureFinderType(null)
+  setFeatureFinderSuggestions([])
   setHoveredFeatureFinderSuggestionId(null)
 }
 
