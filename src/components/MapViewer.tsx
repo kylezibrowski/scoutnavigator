@@ -96,7 +96,7 @@ const featureFinderOptions: Array<{ value: FeatureFinderType; label: string }> =
 const featureFinderAreaSourceId = 'feature-finder-area'
 const featureFinderAreaFillLayerId = 'feature-finder-area-fill'
 const featureFinderAreaLineLayerId = 'feature-finder-area-line'
-const terrainSampleSpacingMeters = 91.44
+const terrainSampleSpacingMeters = 45.72
 const maxTerrainSampleCount = 100000
 
 type TerrainSampleResult =

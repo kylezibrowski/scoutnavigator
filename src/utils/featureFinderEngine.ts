@@ -851,86 +851,79 @@ function getPerimeterPenalty({
 }
 
 function getSaddleTerrainPattern(grid: TerrainGrid, sample: TerrainSample) {
-  const northHigh = getDirectionalHighPoint({
-    grid,
-    sample,
-    rowOffset: 1,
-    columnOffset: 0,
-    radius: 6,
-  })
-  const southHigh = getDirectionalHighPoint({
-    grid,
-    sample,
-    rowOffset: -1,
-    columnOffset: 0,
-    radius: 6,
-  })
-  const eastHigh = getDirectionalHighPoint({
-    grid,
-    sample,
-    rowOffset: 0,
-    columnOffset: 1,
-    radius: 6,
-  })
-  const westHigh = getDirectionalHighPoint({
-    grid,
-    sample,
-    rowOffset: 0,
-    columnOffset: -1,
-    radius: 6,
-  })
-  const northLow = getDirectionalLowPoint({
-    grid,
-    sample,
-    rowOffset: 1,
-    columnOffset: 0,
-    radius: 6,
-  })
-  const southLow = getDirectionalLowPoint({
-    grid,
-    sample,
-    rowOffset: -1,
-    columnOffset: 0,
-    radius: 6,
-  })
-  const eastLow = getDirectionalLowPoint({
-    grid,
-    sample,
-    rowOffset: 0,
-    columnOffset: 1,
-    radius: 6,
-  })
-  const westLow = getDirectionalLowPoint({
-    grid,
-    sample,
-    rowOffset: 0,
-    columnOffset: -1,
-    radius: 6,
-  })
-  const northSouthRise =
-    northHigh !== null && southHigh !== null
-      ? Math.min(northHigh, southHigh) - sample.elevationMeters
+  const directionOffsets = [
+    { rowOffset: 1, columnOffset: 0 },
+    { rowOffset: 1, columnOffset: 1 },
+    { rowOffset: 0, columnOffset: 1 },
+    { rowOffset: -1, columnOffset: 1 },
+    { rowOffset: -1, columnOffset: 0 },
+    { rowOffset: -1, columnOffset: -1 },
+    { rowOffset: 0, columnOffset: -1 },
+    { rowOffset: 1, columnOffset: -1 },
+  ]
+  const directionProfiles = directionOffsets.map((offset) => ({
+    high: getDirectionalHighPoint({
+      grid,
+      sample,
+      rowOffset: offset.rowOffset,
+      columnOffset: offset.columnOffset,
+      radius: 6,
+    }),
+    low: getDirectionalLowPoint({
+      grid,
+      sample,
+      rowOffset: offset.rowOffset,
+      columnOffset: offset.columnOffset,
+      radius: 6,
+    }),
+  }))
+  const axisPairs = [
+    { ridge: [0, 4], fall: [2, 6] },
+    { ridge: [2, 6], fall: [0, 4] },
+    { ridge: [1, 5], fall: [3, 7] },
+    { ridge: [3, 7], fall: [1, 5] },
+  ]
+  const axisScores = axisPairs.map((axisPair) => {
+    const ridgeHighs = axisPair.ridge.map((directionIndex) => directionProfiles[directionIndex].high)
+    const fallLows = axisPair.fall.map((directionIndex) => directionProfiles[directionIndex].low)
+    const opposingRiseMeters = ridgeHighs.every((elevation) => elevation !== null)
+      ? Math.min(...ridgeHighs.map((elevation) => elevation ?? sample.elevationMeters)) -
+        sample.elevationMeters
       : 0
-  const eastWestRise =
-    eastHigh !== null && westHigh !== null
-      ? Math.min(eastHigh, westHigh) - sample.elevationMeters
-      : 0
-  const northSouthDrop =
-    northLow !== null && southLow !== null
-      ? sample.elevationMeters - Math.max(northLow, southLow)
-      : 0
-  const eastWestDrop =
-    eastLow !== null && westLow !== null
-      ? sample.elevationMeters - Math.max(eastLow, westLow)
+    const crossDropMeters = fallLows.every((elevation) => elevation !== null)
+      ? sample.elevationMeters -
+        Math.max(...fallLows.map((elevation) => elevation ?? sample.elevationMeters))
       : 0
 
+    return {
+      opposingRiseMeters: Math.max(0, opposingRiseMeters),
+      crossDropMeters: Math.max(0, crossDropMeters),
+      passShapeMeters: Math.min(
+        Math.max(0, opposingRiseMeters),
+        Math.max(0, crossDropMeters),
+      ),
+    }
+  })
+  const bestAxisScore = axisScores.sort(
+    (firstAxis, secondAxis) =>
+      secondAxis.passShapeMeters - firstAxis.passShapeMeters ||
+      secondAxis.opposingRiseMeters - firstAxis.opposingRiseMeters,
+  )[0]
+  const risingDirectionCount = directionProfiles.filter(
+    (profile) =>
+      profile.high !== null && profile.high - sample.elevationMeters >= 25,
+  ).length
+  const fallingDirectionCount = directionProfiles.filter(
+    (profile) =>
+      profile.low !== null && sample.elevationMeters - profile.low >= 18,
+  ).length
+
   return {
-    opposingRiseMeters: Math.max(0, northSouthRise, eastWestRise),
-    crossDropMeters: Math.max(
-      0,
-      Math.min(Math.max(0, northSouthRise), Math.max(0, eastWestDrop)),
-      Math.min(Math.max(0, eastWestRise), Math.max(0, northSouthDrop)),
-    ),
+    opposingRiseMeters: bestAxisScore?.opposingRiseMeters ?? 0,
+    crossDropMeters: bestAxisScore?.crossDropMeters ?? 0,
+    passShapeMeters: bestAxisScore?.passShapeMeters ?? 0,
+    risingDirectionCount,
+    fallingDirectionCount,
   }
 }
 
@@ -1045,6 +1038,32 @@ function scoreTerrainSampleForFeature({
     contextMetrics?.higherSampleRatio ?? 0,
     contextMetrics?.lowerSampleRatio ?? 0,
   ) * 2
+  const sidehillScore = Math.min(
+    1,
+    Math.min(
+      contextMetrics?.higherSampleRatio ?? 0,
+      contextMetrics?.lowerSampleRatio ?? 0,
+    ) * 2.8,
+  )
+  const localProminenceScore = Math.min(
+    1,
+    Math.max(
+      0,
+      summary.sample.elevationMeters -
+        (contextMetrics?.averageElevationMeters ?? summary.sample.elevationMeters),
+    ) / 55,
+  )
+  const localDropPatternScore = Math.min(
+    1,
+    terrainDropsAwayScore * 0.7 +
+      Math.min(1, (contextMetrics?.lowerSampleRatio ?? 0) * 1.6) * 0.3,
+  )
+  const benchShelfScore = Math.min(
+    1,
+    flatnessScore * 0.45 + sidehillScore * 0.35 + contextReliefScore * 0.2,
+  )
+  const surroundingSlopeScore =
+    contextReliefScore > 0.22 ? Math.min(1, contextReliefScore * 1.35) : 0
   const corridorLowScore = Math.min(1, (contextMetrics?.similarLowSampleRatio ?? 0) * 2.5)
   const elevatedScore = summary.elevationPercentile
   const midElevationScore = 1 - Math.abs(summary.elevationPercentile - 0.55) / 0.55
@@ -1068,17 +1087,23 @@ function scoreTerrainSampleForFeature({
   if (featureType === 'glassing-point') {
     const manageableSlopeScore =
       summary.slopeStrength >= 2 && summary.slopeStrength <= 28 ? 1 : 0.35
-    const highSidehillScore = 1 - Math.abs(summary.elevationPercentile - 0.72) / 0.35
+    const broadPeakPenalty =
+      summary.elevationPercentile > 0.82 &&
+      (contextMetrics?.higherSampleRatio ?? 0) < 0.16 &&
+      shoulderScore < 0.45
+        ? 18
+        : 0
 
     return clampScore(
-      Math.max(0, highSidehillScore) * 24 +
-        shoulderScore * 20 +
-        contextReliefScore * 18 +
-        terrainDropsAwayScore * 14 +
-        localHighScore * 8 +
+      localProminenceScore * 22 +
+        localDropPatternScore * 22 +
+        shoulderScore * 18 +
+        contextReliefScore * 14 +
+        localHighScore * 10 +
         manageableSlopeScore * 8 +
         glassingAspectScore * 8 -
         peakPenalty -
+        broadPeakPenalty -
         perimeterPenalty,
     )
   }
@@ -1087,13 +1112,40 @@ function scoreTerrainSampleForFeature({
     const saddlePattern = getSaddleTerrainPattern(grid, summary.sample)
     const opposingRiseScore = Math.min(1, saddlePattern.opposingRiseMeters / 70)
     const crossDropScore = Math.min(1, saddlePattern.crossDropMeters / 45)
+    const passShapeScore = Math.min(1, saddlePattern.passShapeMeters / 42)
+    const localPositionScore = Math.min(
+      1,
+      Math.max(
+        0,
+        summary.sample.elevationMeters -
+          (contextMetrics?.lowestElevationMeters ?? summary.sample.elevationMeters),
+      ) / 95,
+    )
+    const ridgeContextScore =
+      saddlePattern.risingDirectionCount >= 2 && saddlePattern.fallingDirectionCount >= 2
+        ? 1
+        : 0.35
+    const drainageBottomPenalty =
+      localLowScore > 0.25 && (contextMetrics?.lowerSampleRatio ?? 0) < 0.18
+        ? 34
+        : 0
+    const tooManyRisesPenalty =
+      saddlePattern.risingDirectionCount >= 6 && saddlePattern.fallingDirectionCount <= 2
+        ? 26
+        : 0
+    const weakPassPenalty = passShapeScore < 0.28 ? 22 : 0
 
     return clampScore(
-      opposingRiseScore * 42 +
-        crossDropScore * 28 +
-        midElevationScore * 16 +
-        contextReliefScore * 10 +
-        flatnessScore * 4 -
+      passShapeScore * 34 +
+        crossDropScore * 22 +
+        opposingRiseScore * 18 +
+        localPositionScore * 12 +
+        ridgeContextScore * 8 +
+        Math.max(0, midElevationScore) * 6 +
+        contextReliefScore * 6 -
+        drainageBottomPenalty -
+        tooManyRisesPenalty -
+        weakPassPenalty -
         valleyBottomPenalty -
         ridgeTopPenalty -
         perimeterPenalty,
@@ -1101,25 +1153,22 @@ function scoreTerrainSampleForFeature({
   }
 
   if (featureType === 'bedding-bench') {
-    const sidehillScore = Math.min(
-      1,
-      Math.min(
-        contextMetrics?.higherSampleRatio ?? 0,
-        contextMetrics?.lowerSampleRatio ?? 0,
-      ) * 2.8,
-    )
     const gentleSlopeScore =
       summary.slopeStrength >= 1 && summary.slopeStrength <= 20 ? 1 : 0.35
+    const broadFlatPenalty =
+      flatnessScore > 0.72 && contextReliefScore < 0.28 ? 18 : 0
 
     return clampScore(
-      flatnessScore * 28 +
-        sidehillScore * 26 +
-        gentleSlopeScore * 12 +
-        northAspectScore * 16 +
-        lowerMidElevationScore * 10 +
-        contextReliefScore * 8 -
+      benchShelfScore * 30 +
+        flatnessScore * 18 +
+        sidehillScore * 18 +
+        surroundingSlopeScore * 14 +
+        gentleSlopeScore * 10 +
+        northAspectScore * 14 +
+        Math.max(0, lowerMidElevationScore) * 4 -
         valleyBottomPenalty -
         ridgeTopPenalty -
+        broadFlatPenalty -
         perimeterPenalty,
     )
   }

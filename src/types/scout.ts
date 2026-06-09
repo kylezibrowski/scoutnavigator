@@ -118,3 +118,67 @@ export type SavedPinFolder = {
   pinIds: string[]
   createdAt: string
 }
+
+export type AskRemiPinSource = 'scenario' | 'user' | 'feature-finder'
+
+export type AskRemiPinPriority = 'low' | 'medium' | 'medium-high' | 'high'
+
+export type AskRemiConsideredPin = {
+  id: string
+  scenarioId: string
+  name: string
+  type: ScoutPinType
+  source: AskRemiPinSource
+  coordinates: ScoutPin['coordinates']
+  notes: string
+  observedAt: string
+  priority: AskRemiPinPriority
+  priorityScore: number
+  folderIds: string[]
+  folderNames: string[]
+  planningReasons: string[]
+}
+
+export type AskRemiPinRelationship = {
+  id: string
+  pinIds: [string, string]
+  relationship:
+    | 'nearby'
+    | 'sign-water'
+    | 'food-bedding'
+    | 'elk-wallow'
+    | 'glassing-context'
+    | 'access-context'
+  distanceMiles: number
+  summary: string
+}
+
+export type AskRemiContext = {
+  scenario: ScenarioRegion
+  pins: AskRemiConsideredPin[]
+  folders: SavedPinFolder[]
+  relationships: AskRemiPinRelationship[]
+}
+
+export type AskRemiPlanSection =
+  | {
+      id:
+        | 'best-plan'
+        | 'morning-approach'
+        | 'evening-approach'
+        | 'why-this-area'
+        | 'key-pins-considered'
+        | 'risks-unknowns'
+        | 'next-pins-to-verify'
+      title: string
+      items: string[]
+    }
+
+export type AskRemiPlan = {
+  id: string
+  scenarioId: string
+  title: string
+  summary: string
+  consideredPinIds: string[]
+  sections: AskRemiPlanSection[]
+}
